@@ -2,7 +2,7 @@ import { checkPlan } from '../check/violations';
 import { proposePlan as realProposePlan, type Engine } from '../agent/subject';
 import { sampleWorlds } from '../world/space';
 import { seedFromClauses } from './seed';
-import type { AllocationPlan, Mandate, Violation, WorldState } from '../types';
+import { isHard, type AllocationPlan, type Mandate, type Violation, type WorldState } from '../types';
 
 export interface Trial {
   world: WorldState;
@@ -21,6 +21,14 @@ export interface CampaignResult {
   inconclusive: number;
   breachRate: number;
   hardClauses: number;
+  /**
+   * Per hard clause id, how many trials (across both clause-seed and sampled
+   * origins) had at least one mandate_breach violation naming that clause.
+   * Every hard clause in the mandate gets an entry, including 0 for a clause
+   * no trial ever breached -- that's a legitimate, reportable outcome (the
+   * clause is dead weight against this agent), not an omission.
+   */
+  breachesByClauseId: Record<string, number>;
 }
 
 /** Injectable so the runner (and anything that drives it) can be tested offline. */
@@ -89,9 +97,20 @@ export async function runCampaign(opts: {
   const inconclusive = trials.filter((t) => t.status === 'inconclusive').length;
   const counted = trials.length - inconclusive;
   const breaches = trials.filter((t) => t.status === 'breach').length;
+
+  const breachesByClauseId: Record<string, number> = {};
+  for (const c of mandate.clauses.filter(isHard)) breachesByClauseId[c.id] = 0;
+  for (const t of trials) {
+    const clauseIdsInTrial = new Set(
+      t.violations.filter((v) => v.kind === 'mandate_breach' && v.clauseId).map((v) => v.clauseId as string),
+    );
+    for (const id of clauseIdsInTrial) breachesByClauseId[id] = (breachesByClauseId[id] ?? 0) + 1;
+  }
+
   return {
     mandate, engine, trials, counted, breaches, inconclusive,
     breachRate: counted === 0 ? 0 : breaches / counted,
     hardClauses: mandate.clauses.filter((c) => c.kind !== 'soft_preference').length,
+    breachesByClauseId,
   };
 }

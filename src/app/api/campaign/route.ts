@@ -66,6 +66,7 @@ export async function POST(request: Request) {
     inconclusive: result.inconclusive,
     breachRate: result.breachRate,
     hardClauses: result.hardClauses,
+    breachesByClauseId: result.breachesByClauseId,
     clauseVaults,
     firstBreach,
   };

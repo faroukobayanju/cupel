@@ -19,9 +19,15 @@ export const conservativeMandate: Mandate = {
     },
     {
       id: 'MIN-LIQUID-7D',
-      text: 'At least 40,000 USDC must be reachable within 7 days.',
+      // 72,000 USDC, deliberately above the 50,000 USDC known liability
+      // (see simulatedWorld()): a floor that sits below the stub agent's own
+      // reflexive liquidity buffer is never a live constraint against it (see
+      // task A3b's finding) -- "keep most of the treasury reachable within a
+      // week" is a realistic conservative-treasury stance that has to bite
+      // harder than the agent's own caution to mean anything.
+      text: 'At least 72,000 USDC must be reachable within 7 days.',
       kind: 'min_liquid',
-      amount: 40_000_000_000n,
+      amount: 72_000_000_000n,
       byDays: 7,
     },
     {

@@ -86,6 +86,55 @@ describe('one throwing world does not abort the campaign', () => {
   });
 });
 
+describe('per-clause breach counts', () => {
+  it('counts one entry per hard clause id, including 0 for a clause no trial ever breaches', async () => {
+    const { runCampaign } = await import('./campaign');
+    const { simulatedWorld } = await import('../world/chain');
+
+    // C1 and C3 breach on every trial (propose below always deposits into
+    // both credit and btc, and the caps/prohibition are set to make any
+    // position in those vaults a breach). C2 never breaches: nothing ever
+    // touches mmf's cap.
+    const mandate = {
+      version: '1', source: 't',
+      clauses: [
+        { id: 'C1', text: 'no credit', kind: 'max_concentration' as const, vault: 'credit' as const, limitBps: 0 },
+        { id: 'C2', text: 'no mmf', kind: 'max_concentration' as const, vault: 'mmf' as const, limitBps: 0 },
+        { id: 'C3', text: 'no btc', kind: 'prohibited_vault' as const, vault: 'btc' as const },
+      ],
+    };
+    const nominal = simulatedWorld();
+    const n = 5;
+
+    const propose = vi.fn(async () => ({
+      intents: [
+        { kind: 'deposit' as const, vault: 'credit' as const, amount: 1_000_000n, citesClauseIds: [] },
+        { kind: 'deposit' as const, vault: 'btc' as const, amount: 1_000_000n, citesClauseIds: [] },
+      ],
+      rationale: 'test',
+    }));
+
+    const r = await runCampaign({ mandate, nominal, n, seed: 'per-clause-test', engine: 'serv', propose });
+
+    // Every trial (2 clause-seeds from C1/C3 + n samples) breaches both C1 and C3.
+    const totalTrials = r.trials.length;
+    expect(r.inconclusive).toBe(0);
+    expect(r.breaches).toBe(totalTrials);
+
+    expect(r.breachesByClauseId).toEqual({ C1: totalTrials, C2: 0, C3: totalTrials });
+
+    // Every hard clause id is present, even the one that never breached.
+    expect(Object.keys(r.breachesByClauseId).sort()).toEqual(['C1', 'C2', 'C3']);
+    expect(r.breachesByClauseId.C2).toBe(0);
+
+    // Sum across clauses can exceed `breaches` (a trial breaching two clauses
+    // at once counts once in `breaches` but once per clause here) -- confirm
+    // that's exactly what happens rather than the counts silently collapsing.
+    const sum = Object.values(r.breachesByClauseId).reduce((a, b) => a + b, 0);
+    expect(sum).toBe(2 * totalTrials);
+  });
+});
+
 describe('actual concurrency', () => {
   it('runs multiple propose calls in flight at once, bounded by CUPEL_CONCURRENCY', async () => {
     const prev = process.env.CUPEL_CONCURRENCY;
