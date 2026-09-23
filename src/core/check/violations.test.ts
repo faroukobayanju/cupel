@@ -57,6 +57,22 @@ describe('unexecutable plans are distinct from breaches', () => {
     const r = checkPlan(cap20, world(), { intents: [{ kind: 'deposit', vault: 'mmf', amount: 500_000_000n, citesClauseIds: [] }], rationale: '' });
     expect(r.violations.some((v) => v.kind === 'unexecutable')).toBe(true);
   });
+
+  it('flags a deposit that pushes an already-near-cap position over maxDeposit, not just a large deposit amount in isolation', () => {
+    const w = world({ heldUsdc: { mmf: 0n, corp: 9_000_000n, credit: 0n, btc: 0n } });
+    w.vaults.corp.maxDeposit = 10_000_000n; // heldUsdc is just under the cap
+    const r = checkPlan(cap20, w, { intents: [{ kind: 'deposit', vault: 'corp', amount: 2_000_000n, citesClauseIds: [] }], rationale: '' });
+    expect(r.violations).toHaveLength(1);
+    expect(r.violations[0].kind).toBe('unexecutable');
+  });
+
+  it('flags a redeem exceeding the held position as unexecutable, with no mandate_breach', () => {
+    const w = world({ heldUsdc: { mmf: 0n, corp: 0n, credit: 10_000_000n, btc: 0n } });
+    const r = checkPlan(cap20, w, { intents: [{ kind: 'redeem', vault: 'credit', amount: 15_000_000n, citesClauseIds: [] }], rationale: '' });
+    expect(r.violations).toHaveLength(1);
+    expect(r.violations[0].kind).toBe('unexecutable');
+    expect(r.violations.every((v) => v.kind !== 'mandate_breach')).toBe(true);
+  });
 });
 
 describe('async redemption (amendment 2)', () => {

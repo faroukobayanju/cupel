@@ -14,11 +14,20 @@ export interface Projection {
    */
   pending: PendingRedemption[];
   total: Usdc;
+  /**
+   * The vault position immediately after each intent in `plan.intents` was applied, in
+   * the same order. Intents apply sequentially, so this is the running balance at that
+   * point in the plan, not the opening balance — callers checking a redeem against
+   * "what was available" or a deposit against a cap must use this, not `positions`
+   * (the final state), to attribute a violation to the right intent.
+   */
+  positionAfterIntent: Usdc[];
 }
 
 export function projectPositions(world: WorldState, plan: AllocationPlan): Projection {
   const positions = { ...world.heldUsdc };
   const pending: PendingRedemption[] = [];
+  const positionAfterIntent: Usdc[] = [];
   let idle = world.idleUsdc;
   for (const i of plan.intents) {
     if (i.amount < 0n) throw new Error(`negative amount in intent for ${i.vault}`);
@@ -29,8 +38,9 @@ export function projectPositions(world: WorldState, plan: AllocationPlan): Proje
       positions[i.vault] -= i.amount;
       pending.push({ vault: i.vault, amount: i.amount, queueDays: world.vaults[i.vault].queueDays });
     }
+    positionAfterIntent.push(positions[i.vault]);
   }
   const pendingTotal = pending.reduce((a, p) => a + p.amount, 0n);
   const total = VAULT_IDS.reduce((a, v) => a + positions[v], idle) + pendingTotal;
-  return { positions, idle, pending, total };
+  return { positions, idle, pending, total, positionAfterIntent };
 }

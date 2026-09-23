@@ -6,17 +6,34 @@ const bps = (part: bigint, whole: bigint): number =>
   whole === 0n ? 0 : Number((part * 10_000n) / whole);
 
 export function checkPlan(mandate: Mandate, world: WorldState, plan: AllocationPlan): CheckResult {
-  const { positions, idle, pending, total } = projectPositions(world, plan);
+  const { positions, idle, pending, total, positionAfterIntent } = projectPositions(world, plan);
   const violations: Violation[] = [];
 
-  for (const i of plan.intents) {
-    if (i.kind === 'deposit' && i.amount > world.vaults[i.vault].maxDeposit) {
-      violations.push({
-        kind: 'unexecutable', clauseId: null,
-        detail: `deposit of ${i.amount} into ${i.vault} exceeds maxDeposit ${world.vaults[i.vault].maxDeposit}`,
-      });
+  plan.intents.forEach((i, idx) => {
+    const postPosition = positionAfterIntent[idx];
+    if (i.kind === 'deposit') {
+      // Compare the resulting position, not the intent's own amount: a vault already
+      // near its cap via heldUsdc plus a modest new deposit can exceed maxDeposit even
+      // though the deposit amount itself looks small in isolation.
+      if (postPosition > world.vaults[i.vault].maxDeposit) {
+        violations.push({
+          kind: 'unexecutable', clauseId: null,
+          detail: `deposit of ${i.amount} into ${i.vault} brings the position to ${postPosition}, exceeding maxDeposit ${world.vaults[i.vault].maxDeposit}`,
+        });
+      }
+    } else {
+      // A redeem that exceeds the running balance at the time it is applied drives the
+      // position negative. Intents apply in sequence, so this must be checked against
+      // the running balance (positionAfterIntent), not the opening heldUsdc.
+      if (postPosition < 0n) {
+        const available = postPosition + i.amount;
+        violations.push({
+          kind: 'unexecutable', clauseId: null,
+          detail: `redeem of ${i.amount} from ${i.vault} exceeds the available position ${available}`,
+        });
+      }
     }
-  }
+  });
   if (idle < 0n) {
     violations.push({ kind: 'unexecutable', clauseId: null, detail: `plan spends ${-idle} more USDC than held` });
   }
