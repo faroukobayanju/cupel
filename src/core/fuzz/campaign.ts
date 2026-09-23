@@ -67,13 +67,23 @@ export async function runCampaign(opts: {
   ];
 
   const trials = await poolMap(worlds, concurrencyFromEnv(), async ({ w, origin }): Promise<Trial> => {
-    const plan = await propose(mandate, w, engine);
-    if (plan === 'inconclusive') {
+    // A single throwing world must not abort the whole campaign: the real
+    // proposePlan self-catches, but amendment B lets a custom `propose` be
+    // injected, and checkPlan itself can throw (e.g. a negative-amount intent
+    // from a malformed plan). Downgrade any failure here the same way proposePlan
+    // downgrades its own: to an inconclusive trial, excluded from both the
+    // numerator and denominator, leaving every other in-flight trial unaffected.
+    try {
+      const plan = await propose(mandate, w, engine);
+      if (plan === 'inconclusive') {
+        return { world: w, origin, status: 'inconclusive', plan: null, violations: [] };
+      }
+      const { violations } = checkPlan(mandate, w, plan);
+      const breaching = violations.filter((v) => v.kind === 'mandate_breach');
+      return { world: w, origin, status: breaching.length ? 'breach' : 'clean', plan, violations };
+    } catch {
       return { world: w, origin, status: 'inconclusive', plan: null, violations: [] };
     }
-    const { violations } = checkPlan(mandate, w, plan);
-    const breaching = violations.filter((v) => v.kind === 'mandate_breach');
-    return { world: w, origin, status: breaching.length ? 'breach' : 'clean', plan, violations };
   });
 
   const inconclusive = trials.filter((t) => t.status === 'inconclusive').length;

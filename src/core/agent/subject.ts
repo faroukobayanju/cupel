@@ -55,6 +55,9 @@ export async function proposePlan(
         // Money is bigint, never a float round-trip. parseUnits does exact
         // fixed-point decimal-string -> bigint conversion. Reject anything that
         // isn't a finite, non-negative amount rather than let it produce garbage.
+        // Validation-only: this Number() never feeds a computation or the
+        // resulting amount, only the finite/non-negative check below. The actual
+        // money conversion is parseUnits(i.amountUsdc, 6) a few lines down.
         const n = Number(i.amountUsdc);
         if (!Number.isFinite(n) || n < 0) {
           throw new Error(`invalid amountUsdc from model: ${i.amountUsdc}`);

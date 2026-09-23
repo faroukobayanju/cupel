@@ -53,3 +53,69 @@ describe('bounded concurrency pool', () => {
     expect(r.trials.map((t) => t.world.seed)).toEqual(expectedSeeds);
   });
 });
+
+describe('one throwing world does not abort the campaign', () => {
+  it('downgrades a thrown error to inconclusive and leaves every other trial unaffected', async () => {
+    const { runCampaign } = await import('./campaign');
+    const { simulatedWorld } = await import('../world/chain');
+    const { sampleWorlds } = await import('../world/space');
+
+    const mandate = { version: '1', source: 't', clauses: [] };
+    const nominal = simulatedWorld();
+    const expectedSeeds = sampleWorlds(nominal, 6, 'throw-test').map((w) => w.seed);
+    const throwingSeed = expectedSeeds[2];
+
+    // Simulates both failure modes the review flagged: a custom propose that
+    // rejects instead of resolving to 'inconclusive' (amendment B's whole point is
+    // that custom propose implementations get injected), and checkPlan throwing on
+    // a malformed plan (e.g. src/core/check/positions.ts:30 on a negative amount).
+    const propose = vi.fn(async (_m: unknown, world: WorldState) => {
+      if (world.seed === throwingSeed) throw new Error('boom: malformed world');
+      return { intents: [], rationale: 'ok' };
+    });
+
+    const r = await runCampaign({ mandate, nominal, n: 6, seed: 'throw-test', engine: 'serv', propose });
+
+    expect(r.trials).toHaveLength(6);
+    const thrown = r.trials.find((t) => t.world.seed === throwingSeed);
+    expect(thrown?.status).toBe('inconclusive');
+    expect(r.inconclusive).toBe(1);
+    expect(r.counted).toBe(5);
+    const others = r.trials.filter((t) => t.world.seed !== throwingSeed);
+    expect(others.every((t) => t.status === 'clean')).toBe(true);
+  });
+});
+
+describe('actual concurrency', () => {
+  it('runs multiple propose calls in flight at once, bounded by CUPEL_CONCURRENCY', async () => {
+    const prev = process.env.CUPEL_CONCURRENCY;
+    process.env.CUPEL_CONCURRENCY = '3';
+    try {
+      const { runCampaign } = await import('./campaign');
+      const { simulatedWorld } = await import('../world/chain');
+
+      const mandate = { version: '1', source: 't', clauses: [] };
+      const nominal = simulatedWorld();
+
+      // Fails against a sequential loop (maxInFlight would stay 1) and fails
+      // against an unbounded Promise.all (maxInFlight would hit 12, not <= 3).
+      let inFlight = 0;
+      let maxInFlight = 0;
+      const propose = vi.fn(async () => {
+        inFlight++;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        inFlight--;
+        return { intents: [], rationale: 'ok' };
+      });
+
+      await runCampaign({ mandate, nominal, n: 12, seed: 'concurrency-test', engine: 'serv', propose });
+
+      expect(maxInFlight).toBeGreaterThan(1);
+      expect(maxInFlight).toBeLessThanOrEqual(3);
+    } finally {
+      if (prev === undefined) delete process.env.CUPEL_CONCURRENCY;
+      else process.env.CUPEL_CONCURRENCY = prev;
+    }
+  });
+});
