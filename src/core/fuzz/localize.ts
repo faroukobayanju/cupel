@@ -1,4 +1,30 @@
+import { VAULT_IDS } from '../types';
+import { DIMENSIONS } from '../world/space';
 import type { Trial } from './campaign';
+
+/**
+ * Fix round 1 (Minor 3): identifiers that are structural, not insight. A vault
+ * id like "credit" appears only in a breaching run's rationale simply because
+ * that's the vault the agent picked -- it reads like a causal explanation but
+ * is just a name. Excluded before the length-heuristic divergence diff below,
+ * on top of (not instead of) that heuristic.
+ */
+const VAULT_ID_WORDS = new Set<string>(VAULT_IDS.map((v) => v.toLowerCase()));
+const DIMENSION_FIELD_WORDS = new Set<string>(Object.keys(DIMENSIONS).map((k) => k.toLowerCase()));
+
+function wordsOf(s: string): Set<string> {
+  return new Set(s.toLowerCase().split(/[^a-z]+/).filter((w) => w.length > 0));
+}
+
+/** Splits each id (e.g. "CAP-CREDIT-20") into its constituent words the same way rationale text is tokenized. */
+function identifierWords(ids: (string | null | undefined)[]): Set<string> {
+  const out = new Set<string>();
+  for (const id of ids) {
+    if (!id) continue;
+    for (const w of wordsOf(id)) out.add(w);
+  }
+  return out;
+}
 
 export interface Localization {
   method: 'node' | 'clause';
@@ -55,7 +81,19 @@ export function localizeByClause(breaching: Trial, passing: Trial | null | undef
     };
   }
 
-  const words = (s: string) => new Set(s.toLowerCase().split(/[^a-z]+/).filter((w) => w.length > 4));
+  // Structural identifiers known at this point: vault ids, DIMENSIONS field
+  // names, and every clause id either trial cited or breached against. Removed
+  // before the divergence diff so a picked-vault name can't masquerade as a
+  // causal phrase (Minor 3).
+  const clauseIdWords = identifierWords([
+    ...citedWhileBreaching,
+    ...(passing.plan?.intents.flatMap((i) => i.citesClauseIds) ?? []),
+    ...breaching.violations.map((v) => v.clauseId),
+    ...passing.violations.map((v) => v.clauseId),
+  ]);
+  const structural = new Set([...VAULT_ID_WORDS, ...DIMENSION_FIELD_WORDS, ...clauseIdWords]);
+
+  const words = (s: string) => new Set([...wordsOf(s)].filter((w) => w.length > 4 && !structural.has(w)));
   const bWords = words(breaching.plan?.rationale ?? '');
   const pWords = words(passing.plan?.rationale ?? '');
   const divergentPhrases = [...bWords].filter((w) => !pWords.has(w));

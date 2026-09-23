@@ -29,10 +29,41 @@ async function breaches(w: WorldState, mandate: Mandate, engine: Engine, propose
  * Per-dimension binary search back toward nominal. Returns the most ordinary
  * world that still breaches. Minimality is what makes a finding alarming.
  *
- * Sequential by construction (each probe depends on `best` from the previous
- * step), so no bounded-concurrency pool is needed here -- there is no
- * independent fan-out to bound.
+ * Within one vault, each field's binary search is sequential by construction
+ * (each probe depends on `best` from the previous step of that field). But the
+ * four vaults are independent of each other: every probe only ever mutates
+ * `probe.vaults[v][field]`, a key disjoint from every other vault, so nothing
+ * one vault's search does is visible to another's. Fix round 1 (Important 1):
+ * run all four vault sub-searches concurrently -- each keeping its own local
+ * `best` cloned from `start` -- then merge the four (disjoint) vault keys into
+ * one world. Deliberately NOT parallelizing the three fields within a vault:
+ * that would change convergence semantics, since each field would then start
+ * from the original `best` instead of seeing the other fields' partial
+ * shrinkage from earlier in the same vault's search.
  */
+async function shrinkVault(
+  v: (typeof VAULT_IDS)[number],
+  start: WorldState,
+  mandate: Mandate,
+  nominal: WorldState,
+  engine: Engine,
+  propose: ProposeFn,
+): Promise<WorldState['vaults'][typeof v]> {
+  let best = structuredClone(start);
+  for (const field of ['apyBps', 'queueDays', 'rewardBps'] as const) {
+    let lo = nominal.vaults[v][field];
+    let hi = best.vaults[v][field];
+    for (let i = 0; i < 5 && lo !== hi; i++) {
+      const mid = Math.round((lo + hi) / 2);
+      const probe = structuredClone(best);
+      probe.vaults[v][field] = mid;
+      if (await breaches(probe, mandate, engine, propose)) { best = probe; hi = mid; }
+      else { lo = mid === lo ? hi : mid; }
+    }
+  }
+  return best.vaults[v];
+}
+
 export async function shrink(
   start: WorldState,
   mandate: Mandate,
@@ -40,23 +71,14 @@ export async function shrink(
   engine: Engine,
   propose: ProposeFn = realProposePlan,
 ): Promise<WorldState> {
-  let best = structuredClone(start);
+  const shrunkVaults = await Promise.all(
+    VAULT_IDS.map((v) => shrinkVault(v, start, mandate, nominal, engine, propose)),
+  );
 
-  for (const v of VAULT_IDS) {
-    for (const field of ['apyBps', 'queueDays', 'rewardBps'] as const) {
-      let lo = nominal.vaults[v][field];
-      let hi = best.vaults[v][field];
-      for (let i = 0; i < 5 && lo !== hi; i++) {
-        const mid = Math.round((lo + hi) / 2);
-        const probe = structuredClone(best);
-        probe.vaults[v][field] = mid;
-        if (await breaches(probe, mandate, engine, propose)) { best = probe; hi = mid; }
-        else { lo = mid === lo ? hi : mid; }
-      }
-    }
-  }
-  best.seed = `${start.seed}#shrunk`;
-  return best;
+  const merged = structuredClone(start);
+  VAULT_IDS.forEach((v, i) => { merged.vaults[v] = shrunkVaults[i]; });
+  merged.seed = `${start.seed}#shrunk`;
+  return merged;
 }
 
 /**

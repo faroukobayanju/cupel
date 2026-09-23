@@ -102,18 +102,18 @@ describe('replicate', () => {
     // cannot represent 7/10 -- this test only passes against code that actually
     // counts across k independent calls to `propose`.
     let seed = 12345;
-    // Deterministic LCG, no Math.random.
+    // Deterministic LCG, no Math.random. Fix round 1 (Important 2): rnd() now
+    // actually drives the breach decision below (threshold 0.75), rather than
+    // being called and discarded next to a hardcoded pattern array -- with
+    // this seed, rnd() < 0.75 is true for exactly 7 of the first 10 draws
+    // (verified by direct computation of the sequence), so the 7/10 outcome
+    // comes from the PRNG itself, which is the whole point of this test.
     const rnd = () => {
       seed = (seed * 1103515245 + 12345) & 0x7fffffff;
       return seed / 0x7fffffff;
     };
-    // Breaches on 7 out of the first 10 calls, by construction.
-    const pattern = [true, true, false, true, true, false, true, true, false, true];
-    let call = 0;
     const probabilisticPropose: ProposeFn = async (mandate: Mandate, world: WorldState) => {
-      void rnd(); // still seeded/deterministic even though this stub doesn't consume it for the decision
-      const shouldBreach = pattern[call % pattern.length];
-      call++;
+      const shouldBreach = rnd() < 0.75;
       if (shouldBreach) {
         // Deposit past the 20% credit cap.
         return {

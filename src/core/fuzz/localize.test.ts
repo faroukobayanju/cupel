@@ -31,6 +31,29 @@ describe('localizeByClause', () => {
     expect(l.divergentPhrases).toEqual([]);
   });
 
+  // Fix round 1 (Minor 3): a vault id must not surface as if it were a causal
+  // rationalization -- it's just the name of the vault the agent picked.
+  it('excludes a vault id from divergentPhrases even though it appears only in the breaching rationale', () => {
+    const l = localizeByClause(
+      trial('allocated to credit for the yield', ['C1'], true),
+      trial('held steady across the board', ['C1'], false),
+    );
+    expect(l.divergentPhrases).not.toContain('credit');
+  });
+
+  it('returns an empty divergentPhrases with a reason when the only distinguishing word is a structural identifier', () => {
+    // Same rationale shape in both runs; only the vault name differs, and both
+    // "credit" and "corp" are vault ids -- so once identifiers are excluded
+    // there is nothing left to distinguish the two rationales.
+    const l = localizeByClause(
+      trial('allocated to credit for now', ['C1'], true),
+      trial('allocated to corp for now', ['C1'], false),
+    );
+    expect(l.divergentPhrases).toEqual([]);
+    expect(l.empty).toBe(true);
+    expect(l.emptyReason).toBeTruthy();
+  });
+
   it('returns an empty divergentPhrases with a reason when breaching and passing rationale share all words', () => {
     const l = localizeByClause(trial('steady state allocation', ['C1'], true), trial('steady state allocation', ['C1'], false));
     expect(l.divergentPhrases).toEqual([]);
