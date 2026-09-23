@@ -18,7 +18,7 @@ export const conservativeMandate: Mandate = {
       limitBps: 2000,
     },
     {
-      id: 'MIN-LIQUID-30D',
+      id: 'MIN-LIQUID-7D',
       text: 'At least 40,000 USDC must be reachable within 7 days.',
       kind: 'min_liquid',
       amount: 40_000_000_000n,

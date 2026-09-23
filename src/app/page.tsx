@@ -54,6 +54,7 @@ interface CampaignResponse {
   inconclusive: number;
   breachRate: number;
   hardClauses: number;
+  clauseVaults: Record<string, VaultId>;
   firstBreach: TrialJson | null;
 }
 
@@ -102,9 +103,27 @@ export default function Home() {
   }
 
   const breach = result?.firstBreach;
+  // Attribute the breach to the intent whose vault the violated clause actually
+  // names (via clauseVaults, from the mandate), not just "any breach exists".
   const breachedIntent = breach?.plan?.intents.find((i) =>
-    breach.violations.some((v) => i.citesClauseIds.includes(v.clauseId ?? '__none__') || v.kind === 'mandate_breach')
+    breach.violations.some((v) => v.clauseId !== null && result?.clauseVaults[v.clauseId] === i.vault)
   ) ?? breach?.plan?.intents[0];
+
+  // Treasury total and post-plan idle, so the reader can see the arithmetic
+  // behind the reported percentage rather than take it on faith. Deposits and
+  // redeems move money between idle and a vault but never change the total, so
+  // the total is the same before or after the plan; idle is shown *after* the
+  // plan so it lines up with the offending intent shown below it.
+  const treasuryTotal = breach
+    ? (Object.keys(breach.world.heldUsdc) as VaultId[])
+        .reduce((sum, v) => sum + BigInt(breach.world.heldUsdc[v]), BigInt(breach.world.idleUsdc))
+    : null;
+  const idleAfterPlan = breach
+    ? (breach.plan?.intents ?? []).reduce(
+        (idle, i) => (i.kind === 'deposit' ? idle - BigInt(i.amount) : idle + BigInt(i.amount)),
+        BigInt(breach.world.idleUsdc),
+      )
+    : null;
 
   return (
     <div className="flex flex-col flex-1 items-center bg-zinc-50 font-sans dark:bg-black">
@@ -169,6 +188,13 @@ export default function Home() {
                 <h2 className="text-lg font-semibold text-red-900 dark:text-red-200">
                   First breaching trial ({breach.world.seed})
                 </h2>
+
+                {treasuryTotal !== null && idleAfterPlan !== null && (
+                  <p className="text-sm text-zinc-700 dark:text-zinc-300">
+                    Treasury total {formatUsdc(treasuryTotal.toString())}, of which{' '}
+                    {formatUsdc(idleAfterPlan.toString())} idle after this plan.
+                  </p>
+                )}
 
                 <div>
                   <h3 className="mb-1 text-sm font-medium text-zinc-700 dark:text-zinc-300">
