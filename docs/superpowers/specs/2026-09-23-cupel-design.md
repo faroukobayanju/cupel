@@ -266,6 +266,45 @@ credibility is the thesis.
 
 ---
 
+## 8b. PROBE RESULTS — 2026-09-24, against a live SERV key and the live IXS API
+
+These supersede the assumptions in sections 5 and 9 wherever they conflict.
+
+**R7 — RESOLVED, middle outcome.** The Responses `output[]` array carries a discrete
+reasoning item with a stable id (`rs_...`). But `content[]` is **always empty** and
+`encrypted_content` is opaque. `summary[].text` **is readable and substantive** — real
+reasoning prose. So "Rationalized at node 7" is NOT buildable; there are no numbered nodes
+with readable content. What IS buildable, and is better than the planned clause-level
+fallback: quote the agent's own reasoning summary verbatim beside the breach, cite the
+reasoning id, and diff summaries between a passing and a breaching run.
+
+**R4 — RESOLVED. `-serv-kronos` is live** (200 OK). `KRONOS_OK=true` is valid.
+
+**Two undocumented API constraints**, found by probe, not in the docs:
+1. SERV rejects any request lacking a system prompt.
+2. `max_tokens` is refused; `max_completion_tokens` is required.
+Our code satisfies both; verified by grep.
+
+**Benchmark arm — the raw model must match the SERV model.** SERV's catalog carries 34
+models across anthropic, google, openai and 6 native `serv-*` models. Gemini is present
+AND has a free direct tier, so both arms use Gemini. A DeepSeek raw arm against a
+`gpt-6-luna` SERV arm would measure model choice, not SERV's contribution.
+
+**R3 — RESOLVED, and it invalidates a premise of this spec.** IXS's live API exposes
+**four vaults that are all the same product**: IX High Yield Bond (USDC), ~3.07% ttm, on
+Avalanche mainnet and BSC mainnet. **There is no testnet deployment and nothing on Base
+Sepolia.** The Fidelity MMF / Corporate Bond / Private Credit / BTC Real Yield lineup in
+section 5.2 is marketing-site copy, not deployed contracts. Section 5.2's four-vault state
+space is therefore a simulation, and must be labelled as one everywhere.
+The vaults are ERC-**7540** (async ERC-4626), which confirms the async-redemption modeling
+in the checker was correct.
+
+**Decision taken:** read the real IXS production vaults read-only for genuine live data
+(a read risks nothing), and deploy a minimal ERC-4626 to Base Sepolia ourselves purely so
+the signing path is real and yields a genuine tx hash. The README states plainly that IXS
+has no testnet, that live data comes from their production contracts, and that the
+signature is demonstrated against a reference vault. **No mainnet transaction, ever.**
+
 ## 9. Risks and honest limits
 
 These go in the README verbatim. Advertising the holes is what makes everything else credible.
