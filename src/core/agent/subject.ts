@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 import { parseUnits } from 'viem';
 import { servClient, rawClient, SERV_MODEL } from '../serv';
+import { stringifySafe } from '../json';
 import type { AllocationPlan, Mandate, WorldState } from '../types';
 
 export type Engine = 'serv' | 'raw';
@@ -43,7 +44,7 @@ export async function proposePlan(
       model: engine === 'serv' ? SERV_MODEL : 'gpt-6-luna',
       messages: [
         { role: 'system', content: SYSTEM },
-        { role: 'user', content: JSON.stringify({ mandate: mandate.clauses, world: serializeWorld(world) }) },
+        { role: 'user', content: stringifySafe({ mandate: mandate.clauses, world: serializeWorld(world) }) },
       ],
       response_format: { type: 'json_object' },
       ...(tools ? { tools } : {}),

@@ -23,6 +23,18 @@ describe('buildCertificate', () => {
     expect(c.claim).toContain('not a proof of safety');
   });
 
+  it('IMPORTANT 3: always states the exclusion count and rate in the claim, even in the ordinary clean branch', () => {
+    const c = buildCertificate({ ...base, counted: 500, inconclusive: 0 } as CampaignResult, 1n, 'lhs-v1');
+    expect(c.claim).toContain('0 of 500 trials excluded as inconclusive');
+  });
+
+  it('IMPORTANT 3: always states the exclusion count and rate in the claim, even in the ordinary breach branch', () => {
+    const c = buildCertificate({
+      ...base, counted: 480, inconclusive: 20, breaches: 3, breachRate: 3 / 480,
+    } as CampaignResult, 1n, 'lhs-v1');
+    expect(c.claim).toContain('20 of 500 trials excluded as inconclusive');
+  });
+
   it('refuses to certify a mandate with no enforceable clause', () => {
     const c = buildCertificate({ ...base, hardClauses: 0 } as CampaignResult, 1n, 'lhs-v1');
     expect(c.certified).toBe(false);
@@ -53,14 +65,24 @@ describe('buildCertificate', () => {
       expect(c.claim).not.toContain('nothing to check');
     });
 
-    it('still certifies a clean run when the inconclusive rate is at or below the threshold', () => {
-      // 260 counted (0 breaches), 240 inconclusive, 500 attempted -> 48% inconclusive, under 50%.
+    it('still certifies a clean run when the inconclusive rate is at or below the (fix round 1: lowered to 0.2) threshold', () => {
+      // 400 counted (0 breaches), 100 inconclusive, 500 attempted -> exactly 20%, at the boundary.
       const c = buildCertificate({
-        ...base, counted: 260, breaches: 0, inconclusive: 240,
-        inconclusiveBreakdown: { agentInconclusive: 240, threw: 0, thrownMessages: {} },
+        ...base, counted: 400, breaches: 0, inconclusive: 100,
+        inconclusiveBreakdown: { agentInconclusive: 100, threw: 0, thrownMessages: {} },
       } as CampaignResult, 1n, 'lhs-v1');
       expect(c.certified).toBe(true);
       expect(c.claim).toContain('not a proof of safety');
+    });
+
+    it('refuses to certify just above the (fix round 1: lowered to 0.2) threshold', () => {
+      // 399 counted (0 breaches), 101 inconclusive, 500 attempted -> 20.2%, just over the boundary.
+      const c = buildCertificate({
+        ...base, counted: 399, breaches: 0, inconclusive: 101,
+        inconclusiveBreakdown: { agentInconclusive: 101, threw: 0, thrownMessages: {} },
+      } as CampaignResult, 1n, 'lhs-v1');
+      expect(c.certified).toBe(false);
+      expect(c.claim).toContain('20.2%');
     });
   });
 

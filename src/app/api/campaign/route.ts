@@ -3,6 +3,7 @@ import { runCampaign, type ProposeFn } from '../../../core/fuzz/campaign';
 import { simulatedWorld } from '../../../core/world/chain';
 import { stubProposePlan } from '../../../core/agent/stub';
 import { conservativeMandate } from '../../../fixtures/mandates/conservative';
+import { bigintSafe } from '../../../core/json';
 
 /**
  * Wraps the synchronous, deterministic stub agent as a ProposeFn so it can be
@@ -12,9 +13,33 @@ import { conservativeMandate } from '../../../fixtures/mandates/conservative';
  */
 const proposeWithStub: ProposeFn = async (mandate, world) => stubProposePlan(mandate, world);
 
-/** JSON.stringify throws on bigint; this replacer converts every bigint to a string instead. */
-function bigintSafe(_key: string, value: unknown): unknown {
-  return typeof value === 'bigint' ? value.toString() : value;
+/** MINOR 5: with a real engine, a thrown SDK exception's message can carry
+ *  request/response fragments -- an API key, a bearer token, an Authorization
+ *  header value. Redact anything that looks like one and cap length before
+ *  any thrown message leaves this route in the public JSON response. */
+const MAX_THROWN_MESSAGE_LEN = 200;
+const SECRET_PATTERNS = [
+  /bearer\s+[a-z0-9._-]+/gi,
+  /\b(sk|pk|api[_-]?key|apikey)[-_a-z0-9]*[=:\s]+[a-z0-9._-]{8,}/gi,
+  /\bAuthorization\s*[:=]\s*\S+/gi,
+];
+
+function redactSecrets(message: string): string {
+  let out = message;
+  for (const pattern of SECRET_PATTERNS) out = out.replace(pattern, '[redacted]');
+  return out;
+}
+
+function sanitizeThrownMessages(thrownMessages: Record<string, number>): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [message, count] of Object.entries(thrownMessages)) {
+    const truncated = message.length > MAX_THROWN_MESSAGE_LEN
+      ? `${message.slice(0, MAX_THROWN_MESSAGE_LEN)}...`
+      : message;
+    const safe = redactSecrets(truncated);
+    out[safe] = (out[safe] ?? 0) + count;
+  }
+  return out;
 }
 
 /** Spec's own campaign size; also the ceiling so a public route can't be made to
@@ -70,7 +95,10 @@ export async function POST(request: Request) {
     // Ruling A2-obs: so the UI (and anyone reading this JSON) can tell "the
     // model returned junk" apart from "our own checker threw on valid input"
     // instead of both collapsing into the same opaque `inconclusive` count.
-    inconclusiveBreakdown: result.inconclusiveBreakdown,
+    inconclusiveBreakdown: {
+      ...result.inconclusiveBreakdown,
+      thrownMessages: sanitizeThrownMessages(result.inconclusiveBreakdown.thrownMessages),
+    },
     clauseVaults,
     firstBreach,
   };

@@ -32,6 +32,28 @@ vi.mock('../serv', () => {
   return { servClient: fakeClient, rawClient: fakeClient, SERV_MODEL: 'gpt-6-luna', KRONOS_MODEL: 'gpt-6-luna' };
 });
 
+describe('fix round 1, CRITICAL 1: min_liquid clauses carry a bigint amount', () => {
+  it('does not silently mislabel a trial as inconclusive when the mandate has a min_liquid clause', async () => {
+    const { proposePlan } = await import('./subject');
+    const mandateWithMinLiquid: Mandate = {
+      version: '1', source: 'test',
+      clauses: [{ id: 'M1', text: 'keep 72000 liquid within 7 days', kind: 'min_liquid', amount: 72_000_000_000n, byDays: 7 }],
+    };
+    mockContent = JSON.stringify({
+      intents: [{ kind: 'deposit', vault: 'mmf', amountUsdc: '1000', citesClauseIds: ['M1'] }],
+      rationale: 'fine',
+    });
+    // Before the fix, JSON.stringify({ mandate: mandate.clauses, ... }) threw on
+    // the bigint `amount` and the surrounding try/catch downgraded that throw to
+    // 'inconclusive' -- indistinguishable from the model itself declining to
+    // answer, and with a real key this would silently mislabel every trial
+    // against any mandate carrying a min_liquid clause (including the demo
+    // fixture conservativeMandate).
+    const result = await proposePlan(mandateWithMinLiquid, simulatedWorld(), 'serv');
+    expect(result).not.toBe('inconclusive');
+  });
+});
+
 describe('amendment C: amountUsdc validation (no float round-trip)', () => {
   it('returns inconclusive for a negative amountUsdc rather than a garbage bigint', async () => {
     const { proposePlan } = await import('./subject');

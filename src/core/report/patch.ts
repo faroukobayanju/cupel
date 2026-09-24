@@ -1,5 +1,6 @@
 import { servClient, SERV_MODEL } from '../serv';
 import { ClauseSchema, toClause } from '../mandate/compile';
+import { stringifySafe } from '../json';
 import type { Clause, Mandate, WorldState } from '../types';
 import type { Localization } from '../fuzz/localize';
 
@@ -20,7 +21,7 @@ export function parseAmendment(json: string): Clause {
 }
 
 function buildUserContent(mandate: Mandate, loc: Localization, world: WorldState): string {
-  return JSON.stringify({
+  return stringifySafe({
     existing: mandate.clauses, breachedClauseId: loc.breachedClauseId,
     citedWhileBreaching: loc.citedWhileBreaching, divergentPhrases: loc.divergentPhrases,
     world: { liabilityDays: world.liabilityDays,

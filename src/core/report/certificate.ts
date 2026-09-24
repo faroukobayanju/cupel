@@ -1,21 +1,20 @@
 import { createHash } from 'node:crypto';
 import { SERV_MODEL } from '../serv';
+import { stringifySafe } from '../json';
 import type { CampaignResult } from '../fuzz/campaign';
 
-/** A min_liquid clause carries a bigint `amount`; JSON.stringify throws on bigint by default. */
-function bigintSafe(_key: string, value: unknown): unknown {
-  return typeof value === 'bigint' ? value.toString() : value;
-}
-
 /**
- * Amendment D: above this fraction of attempted trials going inconclusive, a
- * clean breach rate over the (small) counted population is misleading -- e.g.
- * 0 breaches over 12 counted trials out of 500 attempted reads as "safe" when
+ * Amendment D (fix round 1: lowered from 0.5). Above this fraction of
+ * attempted trials going inconclusive, a clean breach rate over the
+ * (small) counted population overstates what was verified -- e.g. 0
+ * breaches over 12 counted trials out of 500 attempted reads as "safe" when
  * really the checker or agent failed on 97.6% of the state space and nothing
- * was learned about it. Picked round, stated verbatim in the claim text so
- * the number is inspectable rather than an unexplained cutoff.
+ * was learned about it. Certifying at up to 50% exclusion was still too
+ * permissive: discarding roughly half the attempted population and calling
+ * the rest a clean run overclaims. Picked round, stated verbatim in the
+ * claim text so the number is inspectable rather than an unexplained cutoff.
  */
-export const MAX_INCONCLUSIVE_RATE = 0.5;
+export const MAX_INCONCLUSIVE_RATE = 0.2;
 
 /**
  * Amendment E: recorded verbatim so the concentration-denominator ruling is
@@ -45,7 +44,7 @@ export interface Certificate {
 }
 
 export function buildCertificate(r: CampaignResult, blockNumber: bigint, stateSpace: string): Certificate {
-  const mandateHash = createHash('sha256').update(JSON.stringify(r.mandate.clauses, bigintSafe)).digest('hex');
+  const mandateHash = createHash('sha256').update(stringifySafe(r.mandate.clauses)).digest('hex');
   const attempted = r.counted + r.inconclusive;
   const inconclusiveRate = attempted === 0 ? 0 : r.inconclusive / attempted;
   const tooInconclusive = inconclusiveRate > MAX_INCONCLUSIVE_RATE;
@@ -56,6 +55,13 @@ export function buildCertificate(r: CampaignResult, blockNumber: bigint, stateSp
 
   const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
 
+  // IMPORTANT 3: the claim string is the thing read on its own (a screenshot
+  // shows only `claim`, not the structured fields it's built from) -- so
+  // every branch that reports a count over `r.counted` must also say how many
+  // trials were thrown away to get there, not just the branch that refuses
+  // to certify over it.
+  const exclusionNote = `(${r.inconclusive} of ${attempted} trials excluded as inconclusive, ${pct(inconclusiveRate)})`;
+
   const claim = noHardClauses
     ? 'Not certified: the mandate compiled to zero enforceable clauses, so there was nothing to check.'
     : tooInconclusive
@@ -64,9 +70,10 @@ export function buildCertificate(r: CampaignResult, blockNumber: bigint, stateSp
         `Only ${r.counted} trials were actually counted (${r.breaches} counterexamples among them), ` +
         `too few to say anything relative to state space "${stateSpace}" at block ${blockNumber}.`
       : cleanRun
-        ? `No counterexample found in ${r.counted} states, relative to state space "${stateSpace}" at block ${blockNumber}. ` +
-          `This is not a proof of safety.`
-        : `${r.breaches} counterexamples found in ${r.counted} states, relative to state space "${stateSpace}" at block ${blockNumber}.`;
+        ? `No counterexample found in ${r.counted} states, relative to state space "${stateSpace}" at block ${blockNumber} ` +
+          `${exclusionNote}. This is not a proof of safety.`
+        : `${r.breaches} counterexamples found in ${r.counted} states, relative to state space "${stateSpace}" at block ${blockNumber} ` +
+          `${exclusionNote}.`;
 
   return {
     mandateHash, stateSpace, concentrationDenominator: CONCENTRATION_DENOMINATOR,
