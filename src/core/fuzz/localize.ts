@@ -1,4 +1,4 @@
-import { VAULT_IDS } from '../types';
+import { VAULT_IDS, type AllocationPlan } from '../types';
 import { DIMENSIONS } from '../world/space';
 import type { Trial } from './campaign';
 
@@ -43,10 +43,13 @@ export interface Localization {
 }
 
 /**
- * Primary path. Depends on SERV exposing per-node reasoning structure, which is
- * UNVERIFIED (the documented API surface is only `reasoning: { effort, summary }`,
- * nothing about node ids). Never used as a default anywhere; callers must opt in
- * explicitly and must not crash when node data is absent.
+ * Primary path. PROBE RESULTS 8b (R7): there is no per-node reasoning
+ * structure -- SERV's `output[]` carries one discrete reasoning item per
+ * response, not numbered nodes. What IS real is that item's stable `id`
+ * (`rs_...`), so callers pass `breaching.plan?.reasoningId` as `nodeId` here
+ * when the breaching trial's plan came from a `serv` engine call that
+ * surfaced one. Still never used as a default anywhere; callers must opt in
+ * explicitly and this must not crash when no reasoning id is available.
  */
 export function localizeByNode(breaching: Trial, nodeId: string | null | undefined): Localization {
   if (!nodeId) {
@@ -66,9 +69,26 @@ export function localizeByNode(breaching: Trial, nodeId: string | null | undefin
 }
 
 /**
+ * Which text a trial's plan contributes to the divergence diff: the
+ * substantive reasoning summary (PROBE RESULTS 8b: readable, real reasoning
+ * prose) when the plan carries one, otherwise the short `rationale` field.
+ * Reported back so callers/tests can tell which source actually fired.
+ */
+function diffTextOf(plan: AllocationPlan | null): { text: string; source: 'reasoningSummary' | 'rationale' } {
+  if (plan?.reasoningSummary) return { text: plan.reasoningSummary, source: 'reasoningSummary' };
+  return { text: plan?.rationale ?? '', source: 'rationale' };
+}
+
+/**
  * Fallback path, built unconditionally regardless of whether localizeByNode ever
  * becomes usable. Works today with no network: cites-based attribution plus a
- * rationale-word diff between a breaching trial and a passing one.
+ * word diff between a breaching trial and a passing one. Diffs the reasoning
+ * summary (PROBE RESULTS 8b) when a trial's plan carries one -- it's longer
+ * and substantive, unlike the short `rationale` field -- falling back to
+ * `rationale` when it's absent. The two trials can use different sources
+ * (e.g. only the breaching run got a reasoning summary); that's fine, the
+ * diff is still meaningful because it's the divergent words that matter, not
+ * which field they came from.
  */
 export function localizeByClause(breaching: Trial, passing: Trial | null | undefined): Localization {
   const breachedClauseId = breaching.violations.find((v) => v.kind === 'mandate_breach')?.clauseId ?? null;
@@ -77,7 +97,7 @@ export function localizeByClause(breaching: Trial, passing: Trial | null | undef
   if (!passing) {
     return {
       method: 'clause', breachedClauseId, citedWhileBreaching, divergentPhrases: [],
-      empty: true, emptyReason: 'no passing trial available to diff rationale against',
+      empty: true, emptyReason: 'no passing trial available to diff against',
     };
   }
 
@@ -94,13 +114,17 @@ export function localizeByClause(breaching: Trial, passing: Trial | null | undef
   const structural = new Set([...VAULT_ID_WORDS, ...DIMENSION_FIELD_WORDS, ...clauseIdWords]);
 
   const words = (s: string) => new Set([...wordsOf(s)].filter((w) => w.length > 4 && !structural.has(w)));
-  const bWords = words(breaching.plan?.rationale ?? '');
-  const pWords = words(passing.plan?.rationale ?? '');
+  const bDiff = diffTextOf(breaching.plan);
+  const pDiff = diffTextOf(passing.plan);
+  const bWords = words(bDiff.text);
+  const pWords = words(pDiff.text);
   const divergentPhrases = [...bWords].filter((w) => !pWords.has(w));
 
   return {
     method: 'clause', breachedClauseId, citedWhileBreaching, divergentPhrases,
     empty: divergentPhrases.length === 0,
-    ...(divergentPhrases.length === 0 ? { emptyReason: 'no rationale word appears in the breaching run but not the passing run' } : {}),
+    ...(divergentPhrases.length === 0
+      ? { emptyReason: `no word appears in the breaching run's ${bDiff.source} but not the passing run's ${pDiff.source}` }
+      : {}),
   };
 }

@@ -48,7 +48,18 @@ export interface Intent {
   citesClauseIds: string[];
 }
 
-export interface AllocationPlan { intents: Intent[]; rationale: string }
+export interface AllocationPlan {
+  intents: Intent[];
+  rationale: string;
+  /**
+   * Populated only for a SERV Responses-API call whose output carried a
+   * `type: 'reasoning'` item (PROBE RESULTS 8b / R7). Absent for the raw
+   * engine and for any serv call that didn't surface one -- never
+   * fabricated, never defaulted. checkPlan (frozen) never reads these.
+   */
+  reasoningId?: string;
+  reasoningSummary?: string;
+}
 
 export type ViolationKind = 'mandate_breach' | 'unexecutable';
 

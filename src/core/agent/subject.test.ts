@@ -20,14 +20,19 @@ describe('hostile vault metadata', () => {
   });
 });
 
-// A mutable holder for the fake chat-completion content, read lazily by the mocked
-// client so each test can set its own model response. Prefixed `mock` because
-// vitest hoists vi.mock() above other declarations and only allows referencing
-// `mock`-prefixed bindings from inside the factory.
+// A mutable holder for the fake chat-completion / responses content, read
+// lazily by the mocked client so each test can set its own model response.
+// Prefixed `mock` because vitest hoists vi.mock() above other declarations
+// and only allows referencing `mock`-prefixed bindings from inside the
+// factory. `mockOutput`, when set, is spliced onto the Responses-API
+// `output[]` array (e.g. a `type: 'reasoning'` item) alongside the plan text.
 let mockContent = '{}';
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let mockOutput: any[] = [];
 vi.mock('../serv', () => {
   const fakeClient = () => ({
     chat: { completions: { create: async () => ({ choices: [{ message: { content: mockContent } }] }) } },
+    responses: { create: async () => ({ output_text: mockContent, output: mockOutput }) },
   });
   return { servClient: fakeClient, rawClient: fakeClient, SERV_MODEL: 'gpt-6-luna', KRONOS_MODEL: 'gpt-6-luna' };
 });
@@ -73,5 +78,45 @@ describe('amendment C: amountUsdc validation (no float round-trip)', () => {
     });
     const result = await proposePlan(cap20, simulatedWorld(), 'serv');
     expect(result).toBe('inconclusive');
+  });
+});
+
+// PROBE RESULTS 8b (R7): the Responses API carries a discrete `type: 'reasoning'`
+// output item with a stable id and a readable `summary[].text`. proposePlan
+// must surface both when present, and must surface neither -- never crash,
+// never default -- when the response carries no reasoning item at all.
+describe('reasoning capture (PROBE RESULTS 8b)', () => {
+  it('surfaces reasoningId and reasoningSummary when the response carries a reasoning item', async () => {
+    const { proposePlan } = await import('./subject');
+    mockContent = JSON.stringify({
+      intents: [{ kind: 'deposit', vault: 'mmf', amountUsdc: '1000', citesClauseIds: ['C3'] }],
+      rationale: 'fine',
+    });
+    mockOutput = [{
+      type: 'reasoning',
+      id: 'rs_abc123',
+      content: [],
+      encrypted_content: 'opaque-blob',
+      summary: [{ type: 'summary_text', text: 'Chose mmf because it stays well under the credit cap.' }],
+    }];
+    const result = await proposePlan(cap20, simulatedWorld(), 'serv');
+    expect(result).not.toBe('inconclusive');
+    const plan = result as Exclude<typeof result, 'inconclusive'>;
+    expect(plan.reasoningId).toBe('rs_abc123');
+    expect(plan.reasoningSummary).toBe('Chose mmf because it stays well under the credit cap.');
+  });
+
+  it('leaves reasoningId and reasoningSummary absent, without crashing, when no reasoning item is present', async () => {
+    const { proposePlan } = await import('./subject');
+    mockContent = JSON.stringify({
+      intents: [{ kind: 'deposit', vault: 'mmf', amountUsdc: '1000', citesClauseIds: ['C3'] }],
+      rationale: 'fine',
+    });
+    mockOutput = [];
+    const result = await proposePlan(cap20, simulatedWorld(), 'serv');
+    expect(result).not.toBe('inconclusive');
+    const plan = result as Exclude<typeof result, 'inconclusive'>;
+    expect(plan.reasoningId).toBeUndefined();
+    expect(plan.reasoningSummary).toBeUndefined();
   });
 });

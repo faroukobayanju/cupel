@@ -10,6 +10,11 @@ const trial = (rationale: string, cites: string[], breach: boolean): Trial => ({
   violations: breach ? [{ kind: 'mandate_breach', clauseId: 'C3', detail: 'over cap' }] : [],
 });
 
+const trialWithSummary = (rationale: string, reasoningSummary: string, cites: string[], breach: boolean): Trial => {
+  const t = trial(rationale, cites, breach);
+  return { ...t, plan: { ...t.plan!, reasoningSummary } };
+};
+
 describe('localizeByClause', () => {
   it('names the clause the agent cited while breaching a different one', () => {
     const l = localizeByClause(trial('reward expires soon', ['C1'], true), trial('steady', ['C1'], false));
@@ -56,6 +61,38 @@ describe('localizeByClause', () => {
 
   it('returns an empty divergentPhrases with a reason when breaching and passing rationale share all words', () => {
     const l = localizeByClause(trial('steady state allocation', ['C1'], true), trial('steady state allocation', ['C1'], false));
+    expect(l.divergentPhrases).toEqual([]);
+    expect(l.empty).toBe(true);
+    expect(l.emptyReason).toBeTruthy();
+  });
+});
+
+// PROBE RESULTS 8b (R7): the reasoning summary is substantive real prose,
+// unlike the short `rationale` field, so localizeByClause diffs it instead
+// when present, falling back to `rationale` when it is not.
+describe('localizeByClause diffing the reasoning summary', () => {
+  it('diffs the reasoning summary rather than the short rationale when both trials have one', () => {
+    const l = localizeByClause(
+      trialWithSummary('fine', 'The model treated the expiring reward as a permanent liquidity source and overcommitted.', ['C1'], true),
+      trialWithSummary('fine', 'The model held steady across the board.', ['C1'], false),
+    );
+    expect(l.divergentPhrases.join(' ')).toMatch(/overcommitted|permanent|expiring/);
+    expect(l.empty).toBe(false);
+  });
+
+  it('falls back to rationale when the breaching trial has no reasoning summary', () => {
+    const l = localizeByClause(
+      trial('treated the expiring reward as a liquidity event', ['C1'], true),
+      trial('held steady', ['C1'], false),
+    );
+    expect(l.divergentPhrases.join(' ')).toMatch(/liquidity/);
+  });
+
+  it('still returns an honest empty result when reasoning summaries share all words', () => {
+    const l = localizeByClause(
+      trialWithSummary('fine', 'steady state allocation across vaults', ['C1'], true),
+      trialWithSummary('fine', 'steady state allocation across vaults', ['C1'], false),
+    );
     expect(l.divergentPhrases).toEqual([]);
     expect(l.empty).toBe(true);
     expect(l.emptyReason).toBeTruthy();
