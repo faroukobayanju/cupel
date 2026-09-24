@@ -120,3 +120,32 @@ describe('reasoning capture (PROBE RESULTS 8b)', () => {
     expect(plan.reasoningSummary).toBeUndefined();
   });
 });
+
+// Task A7b diagnosis: a live run against SERV came back 8/8 inconclusive, all
+// schema_invalid from the model inventing its own verb for `kind`; fixed with
+// a strict JSON-schema response format plus an unambiguous prompt. A separate
+// coordinator side-probe found Gemini (direct and via SERV) wraps JSON in a
+// Markdown fence despite a JSON response format -- proposePlan must tolerate
+// that fence rather than let a bare JSON.parse throw and mislabel the trial.
+describe('lenient parsing of a fenced JSON reply (coordinator side-probe)', () => {
+  it('parses a ```json-fenced reply from the serv engine rather than going inconclusive', async () => {
+    const { proposePlan } = await import('./subject');
+    mockContent = '```json\n' + JSON.stringify({
+      intents: [{ kind: 'deposit', vault: 'mmf', amountUsdc: '1000', citesClauseIds: ['C3'] }],
+      rationale: 'fenced',
+    }) + '\n```';
+    mockOutput = [];
+    const result = await proposePlan(cap20, simulatedWorld(), 'serv');
+    expect(result).not.toBe('inconclusive');
+    const plan = result as Exclude<typeof result, 'inconclusive'>;
+    expect(plan.rationale).toBe('fenced');
+  });
+
+  it('still returns inconclusive, not a crash, for genuinely malformed (non-fenced) JSON', async () => {
+    const { proposePlan } = await import('./subject');
+    mockContent = 'not json at all, not even fenced';
+    mockOutput = [];
+    const result = await proposePlan(cap20, simulatedWorld(), 'serv');
+    expect(result).toBe('inconclusive');
+  });
+});
