@@ -10,6 +10,14 @@ export interface Trial {
   status: 'clean' | 'breach' | 'inconclusive';
   plan: AllocationPlan | null;
   violations: Violation[];
+  /**
+   * Ruling A2-obs: set only when this trial went inconclusive because
+   * `propose` or `checkPlan` threw, carrying the thrown message. Left
+   * undefined when the agent itself returned 'inconclusive' -- that
+   * distinction is the whole point (a checker crash on valid input is a
+   * different problem than a model declining to answer).
+   */
+  errorMessage?: string;
 }
 
 export interface CampaignResult {
@@ -29,6 +37,19 @@ export interface CampaignResult {
    * clause is dead weight against this agent), not an omission.
    */
   breachesByClauseId: Record<string, number>;
+  /**
+   * Ruling A2-obs: why trials went inconclusive, so a campaign can't hide a
+   * crashing checker behind a clean-looking breach rate. `agentInconclusive`
+   * counts trials where the agent itself returned 'inconclusive';
+   * `threw` counts trials where `propose` or `checkPlan` threw; `thrownMessages`
+   * groups those thrown messages with their counts so the same crash surfaces
+   * once, not as N indistinguishable failures.
+   */
+  inconclusiveBreakdown: {
+    agentInconclusive: number;
+    threw: number;
+    thrownMessages: Record<string, number>;
+  };
 }
 
 /** Injectable so the runner (and anything that drives it) can be tested offline. */
@@ -89,8 +110,9 @@ export async function runCampaign(opts: {
       const { violations } = checkPlan(mandate, w, plan);
       const breaching = violations.filter((v) => v.kind === 'mandate_breach');
       return { world: w, origin, status: breaching.length ? 'breach' : 'clean', plan, violations };
-    } catch {
-      return { world: w, origin, status: 'inconclusive', plan: null, violations: [] };
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      return { world: w, origin, status: 'inconclusive', plan: null, violations: [], errorMessage };
     }
   });
 
@@ -107,10 +129,20 @@ export async function runCampaign(opts: {
     for (const id of clauseIdsInTrial) breachesByClauseId[id] = (breachesByClauseId[id] ?? 0) + 1;
   }
 
+  const thrownMessages: Record<string, number> = {};
+  let threw = 0;
+  for (const t of trials) {
+    if (t.status !== 'inconclusive' || t.errorMessage === undefined) continue;
+    threw += 1;
+    thrownMessages[t.errorMessage] = (thrownMessages[t.errorMessage] ?? 0) + 1;
+  }
+  const agentInconclusive = inconclusive - threw;
+
   return {
     mandate, engine, trials, counted, breaches, inconclusive,
     breachRate: counted === 0 ? 0 : breaches / counted,
     hardClauses: mandate.clauses.filter((c) => c.kind !== 'soft_preference').length,
     breachesByClauseId,
+    inconclusiveBreakdown: { agentInconclusive, threw, thrownMessages },
   };
 }

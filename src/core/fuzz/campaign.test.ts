@@ -86,6 +86,41 @@ describe('one throwing world does not abort the campaign', () => {
   });
 });
 
+describe('ruling A2-obs: inconclusive causes are distinguishable', () => {
+  it('reports a thrown world and an agent-inconclusive world in separate buckets, preserving the thrown message', async () => {
+    const { runCampaign } = await import('./campaign');
+    const { simulatedWorld } = await import('../world/chain');
+    const { sampleWorlds } = await import('../world/space');
+
+    const mandate = { version: '1', source: 't', clauses: [] };
+    const nominal = simulatedWorld();
+    const seeds = sampleWorlds(nominal, 2, 'obs-test').map((w) => w.seed);
+    const throwingSeed = seeds[0];
+    const inconclusiveSeed = seeds[1];
+
+    const propose = vi.fn(async (_m: unknown, world: WorldState) => {
+      if (world.seed === throwingSeed) throw new Error('checker exploded: negative amount');
+      if (world.seed === inconclusiveSeed) return 'inconclusive' as const;
+      return { intents: [], rationale: 'ok' };
+    });
+
+    const r = await runCampaign({ mandate, nominal, n: 2, seed: 'obs-test', engine: 'serv', propose });
+
+    expect(r.inconclusive).toBe(2);
+    expect(r.inconclusiveBreakdown.threw).toBe(1);
+    expect(r.inconclusiveBreakdown.agentInconclusive).toBe(1);
+    expect(r.inconclusiveBreakdown.thrownMessages).toEqual({ 'checker exploded: negative amount': 1 });
+
+    const thrownTrial = r.trials.find((t) => t.world.seed === throwingSeed);
+    expect(thrownTrial?.status).toBe('inconclusive');
+    expect(thrownTrial?.errorMessage).toBe('checker exploded: negative amount');
+
+    const agentInconclusiveTrial = r.trials.find((t) => t.world.seed === inconclusiveSeed);
+    expect(agentInconclusiveTrial?.status).toBe('inconclusive');
+    expect(agentInconclusiveTrial?.errorMessage).toBeUndefined();
+  });
+});
+
 describe('per-clause breach counts', () => {
   it('counts one entry per hard clause id, including 0 for a clause no trial ever breaches', async () => {
     const { runCampaign } = await import('./campaign');

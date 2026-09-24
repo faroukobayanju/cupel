@@ -67,6 +67,10 @@ export async function POST(request: Request) {
     breachRate: result.breachRate,
     hardClauses: result.hardClauses,
     breachesByClauseId: result.breachesByClauseId,
+    // Ruling A2-obs: so the UI (and anyone reading this JSON) can tell "the
+    // model returned junk" apart from "our own checker threw on valid input"
+    // instead of both collapsing into the same opaque `inconclusive` count.
+    inconclusiveBreakdown: result.inconclusiveBreakdown,
     clauseVaults,
     firstBreach,
   };
