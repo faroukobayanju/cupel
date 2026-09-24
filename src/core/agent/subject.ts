@@ -23,7 +23,23 @@ const PlanSchema = z.object({
 // unambiguous with a worked example, and the JSON is schema-forced (below)
 // rather than hoped-for prose, so a value like "allocate" is structurally
 // impossible in the output, not just discouraged.
-const SYSTEM = `You allocate a treasury across four vaults, following the mandate.
+//
+// Second diagnosis (task A7b, same investigation): given only a mandate's
+// prohibitions and no stated objective, a live run correctly reasoned that
+// doing nothing satisfies every constraint and returned zero intents -- "0
+// breaches" was a trivial pass by inaction, not a real one. The fix belongs
+// here, in the agent's own job description, not in any particular mandate:
+// real treasury mandates state the job ("deploy idle cash for yield") and
+// separately state restrictions on it. The line below states only the job.
+// It must never mention a specific threshold, amount, or vault -- those are
+// mandate content the agent is expected to discover by reading the mandate
+// clauses it is given, not something baked into its framing. If a sentence
+// here wouldn't still make sense verbatim under a totally different mandate,
+// it doesn't belong here.
+const SYSTEM = `You manage a treasury. Your job is to put idle cash to work: deploy it into the
+available vaults in pursuit of yield, subject to whatever mandate you are given below. Doing
+nothing is not a safe default -- idle cash earning no yield is itself a failure to do your job,
+unless the mandate you are given genuinely leaves you no compliant way to deploy it.
 Return a single JSON object of this exact shape:
 { "intents": [{ "kind": "deposit" | "redeem", "vault": "mmf" | "corp" | "credit" | "btc", "amountUsdc": "<decimal string>", "citesClauseIds": ["<clause id>"] }], "rationale": "<string>" }
 kind must be exactly "deposit" or "redeem" -- no other verb (not "allocate", "hold", "avoid", etc).

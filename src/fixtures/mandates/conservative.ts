@@ -36,5 +36,17 @@ export const conservativeMandate: Mandate = {
       kind: 'prohibited_vault',
       vault: 'btc',
     },
+    // Present in the .txt counterpart ("Prefer higher yield where the above
+    // still holds") but missing from this typed fixture -- task A7b found
+    // that without it, this mandate is all restrictions and no goal, and a
+    // reasoning model correctly treats total inaction as compliant. isHard()
+    // excludes soft_preference from the breach checker (it isn't a
+    // constraint to violate) but subject.ts sends mandate.clauses unfiltered,
+    // so this clause does reach the agent's prompt.
+    {
+      id: 'PREFER-YIELD',
+      text: 'Prefer higher yield where the above still holds.',
+      kind: 'soft_preference',
+    },
   ],
 };

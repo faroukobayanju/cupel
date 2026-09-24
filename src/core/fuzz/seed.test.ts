@@ -4,7 +4,7 @@ import { simulatedWorld } from '../world/chain';
 import { stubProposePlan } from '../agent/stub';
 import { checkPlan } from '../check/violations';
 import { conservativeMandate } from '../../fixtures/mandates/conservative';
-import type { Mandate } from '../types';
+import { isHard, type Mandate } from '../types';
 
 const m: Mandate = {
   version: '1', source: 't',
@@ -32,11 +32,11 @@ describe('seedFromClauses', () => {
     const seeds = seedFromClauses(conservativeMandate, nominal);
 
     it('produces a seed for every hard clause in the fixture mandate', () => {
-      const hardClauseIds = conservativeMandate.clauses.map((c) => c.id);
+      const hardClauseIds = conservativeMandate.clauses.filter(isHard).map((c) => c.id);
       expect(seeds.map((w) => w.seed)).toEqual(hardClauseIds.map((id) => `clause:${id}`));
     });
 
-    it.each(conservativeMandate.clauses.map((c) => [c.id] as const))(
+    it.each(conservativeMandate.clauses.filter(isHard).map((c) => [c.id] as const))(
       'seed for %s trips a mandate_breach on its own clause',
       (clauseId) => {
         const seed = seeds.find((w) => w.seed === `clause:${clauseId}`);

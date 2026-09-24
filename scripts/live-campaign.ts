@@ -43,7 +43,7 @@ async function main() {
   const result = await runCampaign({
     mandate: conservativeMandate,
     nominal: simulatedWorld(),
-    n: 8,
+    n: Number(process.env.LIVE_N ?? 8),
     seed: 'live-campaign-a7a',
     engine: 'serv',
   });
