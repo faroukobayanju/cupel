@@ -34,7 +34,13 @@ vi.mock('../serv', () => {
     chat: { completions: { create: async () => ({ choices: [{ message: { content: mockContent } }] }) } },
     responses: { create: async () => ({ output_text: mockContent, output: mockOutput }) },
   });
-  return { servClient: fakeClient, rawClient: fakeClient, SERV_MODEL: 'gpt-6-luna', KRONOS_MODEL: 'gpt-6-luna' };
+  return {
+    servClient: fakeClient, rawClient: fakeClient,
+    SERV_MODEL: 'gpt-6-luna', KRONOS_MODEL: 'gpt-6-luna',
+    // Task A7c: subject.ts now imports BENCH_MODEL (both engines run the
+    // same model so the benchmark isolates SERV's reasoning layer).
+    BENCH_MODEL: 'gemini-2.5-flash',
+  };
 });
 
 describe('fix round 1, CRITICAL 1: min_liquid clauses carry a bigint amount', () => {

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 import { parseUnits } from 'viem';
-import { servClient, rawClient, SERV_MODEL } from '../serv';
+import { servClient, rawClient, BENCH_MODEL } from '../serv';
 import { stringifySafe } from '../json';
 import type { AllocationPlan, Mandate, WorldState } from '../types';
 
@@ -165,7 +165,7 @@ async function proposeServ(mandate: Mandate, world: WorldState): Promise<Allocat
   let res;
   try {
     res = await client.responses.create({
-      model: SERV_MODEL,
+      model: BENCH_MODEL,
       instructions: SYSTEM,
       // SERV (like the underlying Responses API) refuses `text.format:
       // json_object` unless the *input* message itself contains the word
@@ -227,7 +227,10 @@ async function proposeRaw(mandate: Mandate, world: WorldState): Promise<Allocati
   let res;
   try {
     res = await client.chat.completions.create({
-      model: 'gpt-6-luna',
+      // Task A7c: same model as the serv arm (BENCH_MODEL) -- the only
+      // difference between arms must be whether the request goes through
+      // SERV, never which model answers it.
+      model: BENCH_MODEL,
       messages: [
         { role: 'system', content: SYSTEM },
         { role: 'user', content: stringifySafe({ mandate: mandate.clauses, world: serializeWorld(world) }) },
