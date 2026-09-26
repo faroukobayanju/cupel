@@ -1,11 +1,20 @@
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 import { parseUnits } from 'viem';
-import { servClient, rawClient, BENCH_MODEL } from '../serv';
+import { servClient, rawClient, BENCH_MODEL, GEMINI_MODEL } from '../serv';
 import { stringifySafe } from '../json';
 import type { AllocationPlan, Mandate, WorldState } from '../types';
 
-export type Engine = 'serv' | 'raw';
+/**
+ * Task A8: added 'stub' so `CampaignResult.engine` (and everything that reads
+ * it -- the API response, the UI, buildCertificate's claim text) can name the
+ * real source of a result honestly, including a deterministic offline run.
+ * `proposePlan` below never actually dispatches on 'stub' -- a stub run
+ * always supplies its own `ProposeFn` (see stub.ts / route.ts) that never
+ * calls this function -- but the type has to admit the value for it to flow
+ * through `CampaignResult` without a lossy cast at the campaign/report layer.
+ */
+export type Engine = 'serv' | 'raw' | 'stub';
 
 const PlanSchema = z.object({
   intents: z.array(z.object({
@@ -127,10 +136,19 @@ function buildIntents(parsed: z.infer<typeof PlanSchema>) {
  * side-probe found that a low cap (40) on SERV gets consumed by reasoning before
  * any plan text is emitted, truncating the reply to a bare "```json" -- a
  * silently-truncated response is another way to manufacture a fake inconclusive.
- * 2048 comfortably covers a several-intent plan plus a medium-effort reasoning
- * summary; this is the one cap this file sets anywhere.
+ *
+ * Task A8: a live probe against the real conservativeMandate fixture prompt
+ * found the SAME failure mode on the raw (Gemini) arm at this file's old cap
+ * of 2048 -- `gemini-2.5-flash` returned finish_reason: "length" with the
+ * plan cut off mid-object, because its thinking tokens (invisible in the
+ * response content, but counted against the completion budget) ate the
+ * budget before any plan text. Raised to 4096, and combined with
+ * `reasoning_effort: 'low'` on the raw call (see proposeRaw) since that
+ * measurably cut reasoning-token spend without changing output quality in
+ * repeated live tests (10/10 sampled worlds finished with finish_reason:
+ * "stop", well under budget, on gemini-3.5-flash-lite -- see GEMINI_MODEL).
  */
-const MAX_OUTPUT_TOKENS = 2048;
+const MAX_OUTPUT_TOKENS = 4096;
 
 /**
  * Strip an optional Markdown code fence (```json ... ``` or ``` ... ```) before
@@ -227,16 +245,20 @@ async function proposeRaw(mandate: Mandate, world: WorldState): Promise<Allocati
   let res;
   try {
     res = await client.chat.completions.create({
-      // Task A7c: same model as the serv arm (BENCH_MODEL) -- the only
-      // difference between arms must be whether the request goes through
-      // SERV, never which model answers it.
-      model: BENCH_MODEL,
+      // Task A8: no longer BENCH_MODEL -- see GEMINI_MODEL in serv.ts for why
+      // the raw and serv arms now run different models (gemini-2.5-flash's
+      // free-tier daily quota is exhausted; SERV is out of credit regardless).
+      model: GEMINI_MODEL,
       messages: [
         { role: 'system', content: SYSTEM },
         { role: 'user', content: stringifySafe({ mandate: mandate.clauses, world: serializeWorld(world) }) },
       ],
       response_format: { type: 'json_schema', json_schema: { name: 'allocation_plan', schema: PLAN_JSON_SCHEMA, strict: true } },
       max_completion_tokens: MAX_OUTPUT_TOKENS,
+      // Task A8: Gemini's OpenAI-compatible surface honors this and measurably
+      // reduces reasoning-token spend (live probe), which is the fix for the
+      // truncation this file used to hit on the raw arm -- see MAX_OUTPUT_TOKENS.
+      reasoning_effort: 'low',
     });
   } catch (err) {
     debugLog('api_error', err);
@@ -274,6 +296,14 @@ async function proposeRaw(mandate: Mandate, world: WorldState): Promise<Allocati
 export async function proposePlan(
   mandate: Mandate, world: WorldState, engine: Engine,
 ): Promise<AllocationPlan | 'inconclusive'> {
+  if (engine === 'stub') {
+    // Defensive only -- see the Engine doc comment above. A real call here
+    // would mean a caller wired 'stub' into the real network path instead of
+    // supplying its own ProposeFn, which is exactly the mislabeling task A8's
+    // honesty rails exist to prevent. Fail loudly rather than silently fall
+    // through to either network branch.
+    throw new Error("proposePlan called with engine 'stub' -- stub runs must supply their own ProposeFn, never call proposePlan");
+  }
   try {
     return engine === 'serv' ? await proposeServ(mandate, world) : await proposeRaw(mandate, world);
   } catch {

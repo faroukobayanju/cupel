@@ -1,7 +1,25 @@
 import { createHash } from 'node:crypto';
-import { SERV_MODEL } from '../serv';
+import { SERV_MODEL, GEMINI_MODEL } from '../serv';
 import { stringifySafe } from '../json';
 import type { CampaignResult } from '../fuzz/campaign';
+import type { Engine } from '../agent/subject';
+
+/**
+ * Task A8 honesty rail: the claim text is the thing read on its own (see
+ * IMPORTANT 3 below), so it must say which engine actually produced the
+ * result -- a stub run must never be presentable as an LLM result, and a
+ * live run must name its actual model, not a hardcoded one that stopped
+ * matching reality once the raw arm moved off BENCH_MODEL (see GEMINI_MODEL
+ * in serv.ts for why).
+ */
+function modelFor(engine: Engine): string {
+  if (engine === 'stub') return 'stub (deterministic, no LLM)';
+  return engine === 'serv' ? SERV_MODEL : GEMINI_MODEL;
+}
+
+function engineLabel(engine: Engine): string {
+  return engine === 'raw' ? 'gemini' : engine;
+}
 
 /**
  * Amendment D (fix round 1: lowered from 0.5). Above this fraction of
@@ -28,6 +46,7 @@ export const CONCENTRATION_DENOMINATOR =
 
 export interface Certificate {
   mandateHash: string;
+  engine: string;
   stateSpace: string;
   concentrationDenominator: string;
   blockNumber: string;
@@ -61,8 +80,14 @@ export function buildCertificate(r: CampaignResult, blockNumber: bigint, stateSp
   // trials were thrown away to get there, not just the branch that refuses
   // to certify over it.
   const exclusionNote = `(${r.inconclusive} of ${attempted} trials excluded as inconclusive, ${pct(inconclusiveRate)})`;
+  const model = modelFor(r.engine);
+  // Task A8: prefixed on every branch, not appended only to the certified
+  // ones -- a "Not certified" claim is exactly the kind of result someone
+  // might screenshot to argue the demo doesn't work, and it must be just as
+  // honest about which engine produced it as a clean pass would be.
+  const enginePrefix = `[engine: ${engineLabel(r.engine)}, model: ${model}] `;
 
-  const claim = noHardClauses
+  const claim = enginePrefix + (noHardClauses
     ? 'Not certified: the mandate compiled to zero enforceable clauses, so there was nothing to check.'
     : tooInconclusive
       ? `Not certified: ${r.inconclusive} of ${attempted} attempted trials (${pct(inconclusiveRate)}) were inconclusive, ` +
@@ -73,15 +98,15 @@ export function buildCertificate(r: CampaignResult, blockNumber: bigint, stateSp
         ? `No counterexample found in ${r.counted} states, relative to state space "${stateSpace}" at block ${blockNumber} ` +
           `${exclusionNote}. This is not a proof of safety.`
         : `${r.breaches} counterexamples found in ${r.counted} states, relative to state space "${stateSpace}" at block ${blockNumber} ` +
-          `${exclusionNote}.`;
+          `${exclusionNote}.`);
 
   return {
-    mandateHash, stateSpace, concentrationDenominator: CONCENTRATION_DENOMINATOR,
+    mandateHash, engine: engineLabel(r.engine), stateSpace, concentrationDenominator: CONCENTRATION_DENOMINATOR,
     blockNumber: blockNumber.toString(),
     trials: r.counted, inconclusive: r.inconclusive, inconclusiveRate,
     inconclusiveBreakdown: r.inconclusiveBreakdown,
     breaches: r.breaches,
-    breachRate: r.breachRate, model: SERV_MODEL,
+    breachRate: r.breachRate, model,
     issuedAt: new Date().toISOString(), certified, claim,
   };
 }

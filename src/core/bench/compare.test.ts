@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { Mandate, WorldState } from '../types';
+import type { Engine } from '../agent/subject';
 
 describe('compare (task A7c: raw-vs-SERV, same worlds, same model)', () => {
   it('runs both arms over the identical world set for the identical mandate', async () => {
@@ -13,9 +14,13 @@ describe('compare (task A7c: raw-vs-SERV, same worlds, same model)', () => {
     const nominal = simulatedWorld();
 
     const seenByEngine: Record<string, string[]> = { raw: [], serv: [] };
-    const propose = vi.fn(async (_m: Mandate, world: WorldState, engine: 'raw' | 'serv') => {
-      seenByEngine[engine].push(world.seed);
-      return { intents: [], rationale: engine };
+    // Task A8 widened Engine to 'serv' | 'raw' | 'stub' (so a stub run's
+    // result can honestly say so); compare() itself only ever passes 'raw'
+    // or 'serv', so the narrowing assertion below still holds at runtime.
+    const propose = vi.fn(async (_m: Mandate, world: WorldState, engine: Engine) => {
+      const key = engine as 'raw' | 'serv';
+      seenByEngine[key].push(world.seed);
+      return { intents: [], rationale: key };
     });
 
     const result = await compare(mandate, nominal, 4, 'compare-test-seed', propose);

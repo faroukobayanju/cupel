@@ -49,6 +49,7 @@ interface TrialJson {
 }
 
 interface CampaignResponse {
+  engine: 'stub' | 'gemini' | 'serv';
   counted: number;
   breaches: number;
   inconclusive: number;
@@ -92,7 +93,15 @@ export default function Home() {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ n }),
       });
-      if (!res.ok) throw new Error(`request failed: ${res.status}`);
+      if (!res.ok) {
+        // Task A8: a non-2xx response (e.g. SERV's 402 credit error) carries
+        // its own explicit `error` message -- surface that instead of a bare
+        // status code, so a credit exhaustion never has to be inferred from
+        // "every trial inconclusive".
+        const body = await res.json().catch(() => null);
+        const message = body && typeof body.error === 'string' ? body.error : `request failed: ${res.status}`;
+        throw new Error(message);
+      }
       const data: CampaignResponse = await res.json();
       setResult(data);
     } catch (e) {
@@ -134,11 +143,13 @@ export default function Home() {
           </h1>
           <p className="text-sm text-zinc-600 dark:text-zinc-400">
             Fuzzes an AI treasury agent against ERC-4626 RWA vaults, looking for
-            mandate breaches. Running on{' '}
+            mandate breaches, on{' '}
             <strong className="font-medium text-black dark:text-zinc-200">
               simulated chain data
             </strong>{' '}
-            — no network calls, no live vaults.
+            — no live vaults. The subject agent itself may be a real LLM
+            (network calls) or an offline deterministic stub, depending on
+            engine; the result below always says which.
           </p>
         </header>
 
@@ -176,6 +187,22 @@ export default function Home() {
 
         {result && (
           <section className="flex flex-col gap-6">
+            {/* Task A8 honesty rail: a stub run must never be presentable as
+                an LLM result -- this label is the UI's half of that. */}
+            <p className="text-sm text-zinc-600 dark:text-zinc-400">
+              Engine:{' '}
+              <strong
+                className={
+                  result.engine === 'stub'
+                    ? 'font-mono text-amber-700 dark:text-amber-400'
+                    : 'font-mono text-black dark:text-zinc-200'
+                }
+              >
+                {result.engine}
+              </strong>
+              {result.engine === 'stub' && ' (deterministic, no LLM, no network calls)'}
+              {result.engine === 'gemini' && ' (live LLM, network calls)'}
+            </p>
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
               <Stat label="counted" value={result.counted} />
               <Stat label="breaches" value={result.breaches} tone="bad" />
