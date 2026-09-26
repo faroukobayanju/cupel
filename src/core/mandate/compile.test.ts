@@ -1,5 +1,14 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { parseMandate, hardClauseCount } from './compile';
+
+// Mirrors subject.test.ts's mock pattern: a mutable holder for the fake
+// chat-completion content, read lazily so each test sets its own response.
+let mockContent = '{}';
+vi.mock('../serv', () => ({
+  servClient: () => ({ chat: { completions: { create: async () => ({ choices: [{ message: { content: mockContent } }] }) } } }),
+  rawClient: () => ({ chat: { completions: { create: async () => ({ choices: [{ message: { content: mockContent } }] }) } } }),
+  SERV_MODEL: 'gpt-6-luna', KRONOS_MODEL: 'gpt-6-luna',
+}));
 
 describe('parseMandate', () => {
   it('converts a percentage cap into basis points', () => {
@@ -46,6 +55,25 @@ describe('parseMandate', () => {
     expect(() => parseMandate('src', JSON.stringify({
       clauses: [{ id: 'C1', text: 'bad', kind: 'max_concentration', vault: 'credit', limitBps: 20_001 }],
     }))).toThrow();
+  });
+});
+
+describe('task A12: out-of-enum kind from the model', () => {
+  it('parseMandate throws naming the bad kind and clause id, rather than silently dropping the clause', () => {
+    expect(() => parseMandate('src', JSON.stringify({
+      clauses: [
+        { id: 'C1', text: 'no btc', kind: 'avoid_vault', vault: 'btc' },
+        { id: 'C2', text: 'be prudent', kind: 'soft_preference' },
+      ],
+    }))).toThrow(/C1.*avoid_vault/);
+  });
+
+  it('compileMandate surfaces the same explicit error end to end when SERV returns an out-of-enum kind', async () => {
+    const { compileMandate } = await import('./compile');
+    mockContent = JSON.stringify({
+      clauses: [{ id: 'C1', text: 'no btc', kind: 'avoid_vault', vault: 'btc' }],
+    });
+    await expect(compileMandate('never hold btc')).rejects.toThrow(/avoid_vault/);
   });
 });
 
