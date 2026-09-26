@@ -1,0 +1,48 @@
+{
+  "network": "base-sepolia",
+  "chainId": 84532,
+  "underlyingAsset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+  "deployedVault": {
+    "address": "0x4DB33a6E6B5174f7048b66AEC15c22264dE19098",
+    "deployTxHash": "0x08ded29dd27df5c7dec2716fb9e5cc11f698abc7065ff84e77e9493a4d669f2a",
+    "deployBlockNumber": "47348791",
+    "status": "success"
+  },
+  "approve": {
+    "txHash": "0x6b47ea6ba24a2fac540f1e3378afb7de84f3b46131303987209e17f8ed56d8ed",
+    "blockNumber": "47348819",
+    "status": "success",
+    "amount": "1000000"
+  },
+  "deposit": {
+    "txHash": "0xd7c50617b9f2e863a9c65038eef9773c7b560c57806fe47ac2914a2d902d7208",
+    "blockNumber": "47348826",
+    "status": "success",
+    "assetsIn": "1000000",
+    "sharesOut": "1000000"
+  },
+  "ixsProductionReads": {
+    "note": "Read-only reads of IXS live production vaults (Avalanche + BSC mainnet). IXS is ERC-7540 (async ERC-4626); calls that reverted are listed per-vault in `unsupported`.",
+    "readAt": "2026-09-26T23:42:27.498Z",
+    "vaults": [
+      {
+        "chain": "bsc",
+        "address": "0xc975a3EeF2e49F8eDdEf585340C43f15300fCB82",
+        "unsupported": [],
+        "totalAssets": "655872704772928805599",
+        "asset": "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d",
+        "maxDeposit": "0",
+        "convertToAssetsPerShare": "1091092"
+      },
+      {
+        "chain": "avalanche",
+        "address": "0xaD01573b459805E3954398796203d830B57A8bD9",
+        "unsupported": [],
+        "totalAssets": "402614429",
+        "asset": "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E",
+        "maxDeposit": "0",
+        "convertToAssetsPerShare": "0"
+      }
+    ]
+  }
+}

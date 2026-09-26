@@ -1,0 +1,9 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+cache_path = "cache"
+solc_version = "0.8.24"
+
+# Scoped to contracts/ only — does not touch the Next.js app, its
+# tsconfig, or its build. Run all forge commands with `cd contracts`.
