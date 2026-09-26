@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import type OpenAI from 'openai';
 import { z } from 'zod';
 import { parseUnits } from 'viem';
 import { servClient, rawClient, BENCH_MODEL, GEMINI_MODEL } from '../serv';
@@ -240,15 +241,24 @@ async function proposeServ(mandate: Mandate, world: WorldState): Promise<Allocat
   };
 }
 
-async function proposeRaw(mandate: Mandate, world: WorldState): Promise<AllocationPlan> {
-  const client = rawClient();
+/**
+ * Task A9: shared chat/completions call shape for both the raw arm (Gemini
+ * direct) and the benchmark's SERV arm (Gemini THROUGH SERV -- see
+ * proposeServViaChat below for why that arm no longer goes through
+ * proposeServ/Responses). Same system prompt, same JSON schema, same lenient
+ * fenced-JSON parsing on both callers, so the only thing that can differ
+ * between the two arms is the base URL/client the request is sent through.
+ * Returns token usage alongside the plan so a live run can sum real spend
+ * (see scripts/bench.ts) -- `usage` is best-effort, `undefined` if the
+ * provider ever omits it, never assumed present.
+ */
+async function proposeChatCompletion(
+  client: OpenAI, model: string, mandate: Mandate, world: WorldState,
+): Promise<{ plan: AllocationPlan; usage?: { promptTokens: number; completionTokens: number } }> {
   let res;
   try {
     res = await client.chat.completions.create({
-      // Task A8: no longer BENCH_MODEL -- see GEMINI_MODEL in serv.ts for why
-      // the raw and serv arms now run different models (gemini-2.5-flash's
-      // free-tier daily quota is exhausted; SERV is out of credit regardless).
-      model: GEMINI_MODEL,
+      model,
       messages: [
         { role: 'system', content: SYSTEM },
         { role: 'user', content: stringifySafe({ mandate: mandate.clauses, world: serializeWorld(world) }) },
@@ -285,11 +295,58 @@ async function proposeRaw(mandate: Mandate, world: WorldState): Promise<Allocati
     throw err;
   }
 
+  let intents: ReturnType<typeof buildIntents>;
   try {
-    return { rationale: parsed.rationale, intents: buildIntents(parsed) };
+    intents = buildIntents(parsed);
   } catch (err) {
     debugLog('amount_guard', err);
     throw err;
+  }
+
+  const usage = res.usage
+    ? { promptTokens: res.usage.prompt_tokens, completionTokens: res.usage.completion_tokens }
+    : undefined;
+  return { plan: { rationale: parsed.rationale, intents }, usage };
+}
+
+async function proposeRaw(mandate: Mandate, world: WorldState): Promise<AllocationPlan> {
+  // Task A8: no longer BENCH_MODEL -- see GEMINI_MODEL in serv.ts for why the
+  // raw arm runs gemini-3.5-flash-lite directly against Gemini.
+  const { plan } = await proposeChatCompletion(rawClient(), GEMINI_MODEL, mandate, world);
+  return plan;
+}
+
+/**
+ * Task A9: the raw-vs-SERV benchmark's SERV arm. SERV's Responses API
+ * rejects Gemini models outright (400 "The Responses API is not supported
+ * with model gemini-2.5-flash", confirmed live) -- but SERV's chat/completions
+ * endpoint accepts Gemini models (verified 200, model echoed back in the
+ * response). So the SERV arm sends GEMINI_MODEL -- the SAME model the raw arm
+ * runs -- through SERV's chat/completions endpoint, with the same system
+ * prompt, schema, and lenient parsing as proposeRaw above. This keeps the
+ * comparison honest: the only difference between the two arms is whether the
+ * request passed through SERV.
+ *
+ * Deliberately NOT wired into the 'serv' Engine branch of proposePlan below:
+ * that branch (proposeServ) stays on the Responses API + gpt-6-luna, which is
+ * what the demo's reasoning-capture localization feature depends on and must
+ * not be disturbed. This function is invoked only via an explicitly injected
+ * `propose` from scripts/bench.ts, never through the normal engine dispatch,
+ * so it cannot change behavior for the demo route or any existing 'serv'
+ * engine test.
+ *
+ * Self-catches to 'inconclusive' (mirroring proposePlan's own behavior)
+ * because callers use this directly as a ProposeFn slice rather than through
+ * proposePlan's try/catch.
+ */
+export async function proposeServViaChat(
+  mandate: Mandate, world: WorldState,
+): Promise<{ result: AllocationPlan | 'inconclusive'; usage?: { promptTokens: number; completionTokens: number } }> {
+  try {
+    const { plan, usage } = await proposeChatCompletion(servClient(), GEMINI_MODEL, mandate, world);
+    return { result: plan, usage };
+  } catch {
+    return { result: 'inconclusive' };
   }
 }
 
