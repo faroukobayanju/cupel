@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { BottomNav } from '../_components/BottomNav';
 
 interface VerifyCheck {
   id: string;
@@ -15,6 +16,21 @@ interface VerifyResponse {
   ranAt: string;
   checks: VerifyCheck[];
   allPassed: boolean;
+}
+
+const BASESCAN_TX = /^0x[0-9a-fA-F]{64}$/;
+
+function withBasescanLinks(check: VerifyCheck): VerifyCheck {
+  if (check.links && check.links.length > 0) return check;
+  const value = check.value;
+  if (!value || typeof value !== 'object') return check;
+  const links: { label: string; url: string }[] = [];
+  for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof v === 'string' && BASESCAN_TX.test(v)) {
+      links.push({ label: key, url: `https://sepolia.basescan.org/tx/${v}` });
+    }
+  }
+  return links.length > 0 ? { ...check, links } : check;
 }
 
 /**
@@ -46,52 +62,65 @@ export default function VerifyPage() {
   }, []);
 
   return (
-    <div className="flex flex-col flex-1 items-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex w-full max-w-3xl flex-col gap-8 py-16 px-6">
-        <header className="flex flex-col gap-2">
-          <h1 className="text-2xl font-semibold tracking-tight text-black dark:text-zinc-50">
-            Verify
-          </h1>
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">
-            Every check below runs live, right now, against real infrastructure --
-            no wallet and no API key needed to view this page. A check that cannot
-            run reports an explicit failure and why, never a silent pass.
-          </p>
-          <button
-            onClick={run}
-            disabled={loading}
-            className="mt-2 w-fit rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-[#383838] disabled:opacity-50 dark:hover:bg-[#ccc]"
-          >
-            {loading ? 'Re-checking…' : 'Re-run all checks'}
-          </button>
-        </header>
+    <div className="flex min-h-screen flex-col pb-[calc(var(--nav-height)+var(--space-8))]">
+      <main className="mx-auto flex w-full max-w-3xl flex-col gap-10 px-4 pt-16 sm:px-6">
+        <section className="relative -mx-4 flex flex-col gap-4 px-4 pb-8 pt-4 sm:-mx-6 sm:px-6">
+          <div className="grid-backdrop pointer-events-none absolute inset-0" aria-hidden="true" />
+          <div className="relative flex flex-col gap-4">
+            <span className="font-label label-caps tag-angle text-[var(--color-accent)] text-xs">verify</span>
+            <h1 className="font-display text-3xl text-[var(--color-ink)] sm:text-[var(--text-3xl)]">
+              Nothing here is asserted.
+            </h1>
+            <p className="font-label max-w-md text-[var(--color-ink-2)] text-xs">
+              Every check below re-runs live, right now, against real infrastructure — no wallet
+              and no API key needed to view this page. A check that cannot run reports an explicit
+              failure and why, never a silent pass.
+            </p>
+          </div>
+        </section>
 
         {error && (
-          <p className="rounded border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
-            Could not reach /api/verify: {error}
+          <p
+            role="alert"
+            className="border border-[var(--color-breach)] bg-[var(--color-paper-2)] px-4 py-3 text-sm text-[var(--color-breach)]"
+          >
+            could not reach /api/verify: {error}
           </p>
         )}
 
         {loading && !data && (
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">Running live checks…</p>
+          <p className="font-label text-xs text-[var(--color-ink-2)]" aria-live="polite">
+            running live checks…
+          </p>
         )}
 
         {data && (
           <>
-            <p className="text-sm text-zinc-600 dark:text-zinc-400">
-              Ran at {data.ranAt} --{' '}
-              <strong className={data.allPassed ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'}>
+            <div className="flex flex-wrap items-center justify-between gap-3 border border-[var(--color-rule)] bg-[var(--color-paper-2)] p-4">
+              <span className="font-label text-xs text-[var(--color-ink-2)]">
+                ran at {data.ranAt}
+              </span>
+              <span
+                className={
+                  'font-label label-caps border px-2 py-1 text-xs ' +
+                  (data.allPassed
+                    ? 'border-[var(--color-clean)] text-[var(--color-clean)]'
+                    : 'border-[var(--color-breach)] text-[var(--color-breach)]')
+                }
+              >
                 {data.allPassed ? 'all checks passed' : 'one or more checks failed'}
-              </strong>
-            </p>
-            <section className="flex flex-col gap-4">
+              </span>
+            </div>
+            <section className="flex flex-col gap-3">
               {data.checks.map((c) => (
-                <CheckCard key={c.id} check={c} />
+                <CheckCard key={c.id} check={withBasescanLinks(c)} />
               ))}
             </section>
           </>
         )}
       </main>
+
+      <BottomNav active="verify" primaryLabel={loading ? 'checking…' : 're-run'} onPrimary={run} primaryDisabled={loading} />
     </div>
   );
 }
@@ -101,35 +130,33 @@ function CheckCard({ check }: { check: VerifyCheck }) {
   return (
     <div
       className={
-        'flex flex-col gap-2 rounded-lg border p-4 ' +
-        (pass
-          ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/30'
-          : 'border-red-300 bg-red-50 dark:border-red-900 dark:bg-red-950/30')
+        'flex flex-col gap-3 border p-4 ' +
+        (pass ? 'border-[var(--color-rule)] bg-[var(--color-paper-2)]' : 'border-[var(--color-breach)] bg-[var(--color-paper-2)]')
       }
     >
-      <div className="flex items-center justify-between gap-4">
-        <h2 className="text-sm font-medium text-black dark:text-zinc-50">{check.label}</h2>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-sm font-medium text-[var(--color-ink)]">{check.label}</h2>
         <span
           className={
-            'shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold uppercase tracking-wide ' +
+            'font-label label-caps shrink-0 border px-2 py-0.5 text-xs ' +
             (pass
-              ? 'bg-emerald-200 text-emerald-900 dark:bg-emerald-900 dark:text-emerald-200'
-              : 'bg-red-200 text-red-900 dark:bg-red-900 dark:text-red-200')
+              ? 'border-[var(--color-clean)] text-[var(--color-clean)]'
+              : 'border-[var(--color-breach)] text-[var(--color-breach)]')
           }
         >
           {check.status}
         </span>
       </div>
-      <p className="text-sm text-zinc-700 dark:text-zinc-300">{check.detail}</p>
+      <p className="text-sm text-[var(--color-ink-2)]">{check.detail}</p>
       {check.links && check.links.length > 0 && (
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-4">
           {check.links.map((l) => (
             <a
               key={l.url}
               href={l.url}
               target="_blank"
               rel="noreferrer"
-              className="text-xs font-medium text-blue-700 underline dark:text-blue-400"
+              className="font-label label-caps text-xs text-[var(--color-accent)] underline decoration-1 underline-offset-4 hover:opacity-80"
             >
               {l.label} ↗
             </a>
@@ -138,8 +165,8 @@ function CheckCard({ check }: { check: VerifyCheck }) {
       )}
       {check.value !== undefined && (
         <details className="text-xs">
-          <summary className="cursor-pointer text-zinc-500 dark:text-zinc-400">Raw value</summary>
-          <pre className="mt-1 overflow-x-auto rounded bg-zinc-900 p-2 text-zinc-100 dark:bg-black">
+          <summary className="font-label label-caps cursor-pointer text-[var(--color-ink-2)]">raw value</summary>
+          <pre className="mt-2 overflow-x-auto border border-[var(--color-rule)] bg-[var(--color-paper-3)] p-3 text-[var(--color-ink)]">
             {JSON.stringify(check.value, null, 2)}
           </pre>
         </details>

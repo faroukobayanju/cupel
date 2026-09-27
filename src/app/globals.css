@@ -1,26 +1,197 @@
+/* Hallmark · macrostructure: ledger-strip · nav: bottom-segmented · footer: minimal-link-out · theme: studied-DNA (source: user-supplied reference, paper-light cool ink/electric-blue treasury aesthetic) · paper oklch(97% 0.004 250) · accent oklch(62% 0.19 250) · display: Geist heavy · label: Geist Mono · studied: yes */
+/* Hallmark self-critique — Philosophy 4, Hierarchy 4, Execution 4, Specificity 4, Restraint 4, Variety 3 */
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --paper: oklch(97% 0.004 250);
+  --paper-2: oklch(100% 0 0);
+  --paper-3: oklch(94% 0.006 250);
+  --ink: oklch(22% 0.04 255);
+  --ink-2: oklch(48% 0.02 255);
+  --rule-color: oklch(88% 0.006 250);
+  --accent: oklch(62% 0.19 250);
+  --accent-ink: oklch(98% 0.01 250);
+  --breach: oklch(58% 0.20 25);
+  --clean: oklch(62% 0.15 155);
+  --warn: oklch(72% 0.15 75);
+  --vault-mmf: oklch(65% 0.16 240);
+  --vault-corp: oklch(70% 0.16 155);
+  --vault-credit: oklch(70% 0.17 45);
+  --vault-btc: oklch(65% 0.18 300);
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-20: 80px;
+  --space-24: 96px;
+
+  --text-xs: 0.6875rem;
+  --text-sm: 0.8125rem;
+  --text-base: 1rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.75rem;
+  --text-2xl: 2.5rem;
+  --text-3xl: 3.5rem;
+  --text-display: clamp(2.75rem, 9vw, 6.5rem);
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-fast: 120ms;
+  --dur-base: 220ms;
+  --rule: 1px;
+
+  --nav-height: 64px;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-paper: var(--paper);
+  --color-paper-2: var(--paper-2);
+  --color-paper-3: var(--paper-3);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-rule: var(--rule-color);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-breach: var(--breach);
+  --color-clean: var(--clean);
+  --color-warn: var(--warn);
+  --color-vault-mmf: var(--vault-mmf);
+  --color-vault-corp: var(--vault-corp);
+  --color-vault-credit: var(--vault-credit);
+  --color-vault-btc: var(--vault-btc);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  :root:not([data-theme="light"]) {
+    --paper: oklch(16% 0.02 255);
+    --paper-2: oklch(20% 0.025 255);
+    --paper-3: oklch(25% 0.025 255);
+    --ink: oklch(96% 0.005 250);
+    --ink-2: oklch(70% 0.02 250);
+    --rule-color: oklch(32% 0.02 255);
+    --accent: oklch(68% 0.19 250);
+    --accent-ink: oklch(14% 0.02 255);
+    --breach: oklch(64% 0.20 25);
+    --clean: oklch(68% 0.15 155);
+    --warn: oklch(78% 0.15 75);
+    --vault-mmf: oklch(71% 0.16 240);
+    --vault-corp: oklch(76% 0.16 155);
+    --vault-credit: oklch(76% 0.17 45);
+    --vault-btc: oklch(71% 0.18 300);
   }
 }
 
+:root[data-theme="dark"] {
+  --paper: oklch(16% 0.02 255);
+  --paper-2: oklch(20% 0.025 255);
+  --paper-3: oklch(25% 0.025 255);
+  --ink: oklch(96% 0.005 250);
+  --ink-2: oklch(70% 0.02 250);
+  --rule-color: oklch(32% 0.02 255);
+  --accent: oklch(68% 0.19 250);
+  --accent-ink: oklch(14% 0.02 255);
+  --breach: oklch(64% 0.20 25);
+  --clean: oklch(68% 0.15 155);
+  --warn: oklch(78% 0.15 75);
+  --vault-mmf: oklch(71% 0.16 240);
+  --vault-corp: oklch(76% 0.16 155);
+  --vault-credit: oklch(76% 0.17 45);
+  --vault-btc: oklch(71% 0.18 300);
+}
+
+html,
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  overflow-x: clip;
+}
+
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  font-feature-settings: "tnum" 1;
+}
+
+* {
+  min-width: 0;
+}
+
+/* grid-line backdrop motif behind hero areas */
+.grid-backdrop {
+  background-image:
+    linear-gradient(to right, var(--color-rule) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--color-rule) 1px, transparent 1px);
+  background-size: 48px 48px;
+  -webkit-mask-image: linear-gradient(to bottom, black, transparent 85%);
+  mask-image: linear-gradient(to bottom, black, transparent 85%);
+}
+
+.rule {
+  border-color: var(--color-rule);
+}
+
+.font-display {
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 0.95;
+  overflow-wrap: anywhere;
+}
+
+.font-label {
+  font-family: var(--font-mono), monospace;
+  letter-spacing: 0.02em;
+}
+
+.label-caps {
+  text-transform: uppercase;
+}
+
+.tag-angle::before {
+  content: "<";
+  color: var(--color-accent);
+}
+.tag-angle::after {
+  content: ">";
+  color: var(--color-accent);
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+a,
+button,
+input,
+[tabindex] {
+  transition: color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  transition: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+@keyframes pulse-bar {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
 }
