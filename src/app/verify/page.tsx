@@ -14,6 +14,7 @@ interface VerifyCheck {
 
 interface VerifyResponse {
   ranAt: string;
+  mandateCompileMode: 'live' | 'replayed';
   checks: VerifyCheck[];
   allPassed: boolean;
 }
@@ -43,11 +44,11 @@ export default function VerifyPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  async function run() {
+  async function run(live = false) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/verify');
+      const res = await fetch(live ? '/api/verify?live=1' : '/api/verify');
       const body: VerifyResponse = await res.json();
       setData(body);
     } catch (e) {
@@ -111,6 +112,18 @@ export default function VerifyPage() {
                 {data.allPassed ? 'all checks passed' : 'one or more checks failed'}
               </span>
             </div>
+            <p className="font-label text-xs text-[var(--color-ink-2)]">
+              mandate compile check ran in{' '}
+              <strong className={data.mandateCompileMode === 'live' ? 'text-[var(--color-accent)]' : 'text-[var(--color-warn)]'}>
+                {data.mandateCompileMode}
+              </strong>{' '}
+              mode.{' '}
+              {data.mandateCompileMode === 'replayed' && (
+                <button type="button" onClick={() => run(true)} className="underline decoration-1 underline-offset-4 hover:opacity-80">
+                  run it live instead (spends SERV credit)
+                </button>
+              )}
+            </p>
             <section className="flex flex-col gap-3">
               {data.checks.map((c) => (
                 <CheckCard key={c.id} check={withBasescanLinks(c)} />
@@ -120,7 +133,7 @@ export default function VerifyPage() {
         )}
       </main>
 
-      <BottomNav active="verify" primaryLabel={loading ? 'checking…' : 're-run'} onPrimary={run} primaryDisabled={loading} />
+      <BottomNav active="verify" primaryLabel={loading ? 'checking…' : 're-run'} onPrimary={() => run()} primaryDisabled={loading} />
     </div>
   );
 }

@@ -94,9 +94,15 @@ function formatUsdc(baseUnits: string): string {
   return `${negative ? '-' : ''}$${wholeStr}.${frac}`;
 }
 
+// Mirrors the public route's default ceiling (src/app/api/campaign/route.ts's
+// MAX_N, itself CUPEL_PUBLIC_MAX_N ?? 25). The route re-clamps server-side
+// regardless -- this is only so the input doesn't invite a value the server
+// will silently clamp anyway.
+const PUBLIC_MAX_N = 25;
+
 export default function Home() {
   const [engine, setEngine] = useState<ApiEngine>('stub');
-  const [n, setN] = useState(40);
+  const [n, setN] = useState(20);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<CampaignResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -124,8 +130,12 @@ export default function Home() {
       });
       if (!res.ok) {
         const body = await res.json().catch(() => null);
-        const message = body && typeof body.error === 'string' ? body.error : `request failed: ${res.status}`;
-        throw new Error(message);
+        const detail = body && typeof body.error === 'string' ? body.error : `request failed: ${res.status}`;
+        // 403 (engine disabled) and 429 (rate limited) are expected, named
+        // failure modes on a public route, not generic errors -- prefix them
+        // so they read as such rather than as "something broke".
+        const prefix = res.status === 403 ? 'engine not available: ' : res.status === 429 ? 'rate limited: ' : '';
+        throw new Error(prefix + detail);
       }
       const data: CampaignResponse = await res.json();
       setResult(data);
@@ -224,8 +234,9 @@ export default function Home() {
               <input
                 type="number"
                 min={1}
+                max={PUBLIC_MAX_N}
                 value={n}
-                onChange={(e) => setN(Math.max(1, Number(e.target.value) || 1))}
+                onChange={(e) => setN(Math.min(PUBLIC_MAX_N, Math.max(1, Number(e.target.value) || 1)))}
                 disabled={running}
                 aria-label="Number of trials"
                 className="tabular w-20 border border-[var(--color-rule)] bg-[var(--color-paper-2)] px-2 py-1 text-sm text-[var(--color-ink)] focus-visible:outline-2 focus-visible:outline-[var(--color-accent)] disabled:opacity-50"

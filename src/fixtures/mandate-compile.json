@@ -1,0 +1,6 @@
+{
+  "source": "Keep at least 50,000 USDC reachable within 30 days to cover payroll.\nNever put more than 20% of the portfolio in private credit.\nDo not hold BTC Real Yield at all.\nLeave at least 7 days of notice cover before any known liability.\nPrefer higher yield where the above still holds.\n",
+  "model": "gpt-6-luna",
+  "rawJson": "{\"clauses\":[{\"id\":\"C1\",\"text\":\"Keep at least 50,000 USDC reachable within 30 days to cover payroll.\",\"kind\":\"min_liquid\",\"amountUsdc\":\"50000\",\"byDays\":30},{\"id\":\"C2\",\"text\":\"Never put more than 20% of the portfolio in private credit.\",\"kind\":\"max_concentration\",\"vault\":\"credit\",\"limitBps\":2000},{\"id\":\"C3\",\"text\":\"Do not hold BTC Real Yield at all.\",\"kind\":\"prohibited_vault\",\"vault\":\"btc\"},{\"id\":\"C4\",\"text\":\"Leave at least 7 days of notice cover before any known liability.\",\"kind\":\"min_notice_cover\",\"days\":7},{\"id\":\"C5\",\"text\":\"Prefer higher yield where the above still holds.\",\"kind\":\"soft_preference\"}]}",
+  "generatedAt": "2026-09-27T00:36:35.542Z"
+}

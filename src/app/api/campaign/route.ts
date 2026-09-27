@@ -7,6 +7,7 @@ import { stubProposePlan } from '../../../core/agent/stub';
 import { conservativeMandate } from '../../../fixtures/mandates/conservative';
 import { bigintSafe } from '../../../core/json';
 import { servClient, SERV_MODEL } from '../../../core/serv';
+import { redactSecrets } from '../../../core/redact';
 
 /**
  * Wraps the synchronous, deterministic stub agent as a ProposeFn so it can be
@@ -80,19 +81,9 @@ async function servCreditError(): Promise<string | null> {
 /** MINOR 5: with a real engine, a thrown SDK exception's message can carry
  *  request/response fragments -- an API key, a bearer token, an Authorization
  *  header value. Redact anything that looks like one and cap length before
- *  any thrown message leaves this route in the public JSON response. */
+ *  any thrown message leaves this route in the public JSON response.
+ *  (redactSecrets itself now lives in core/redact.ts, shared with /api/verify.) */
 const MAX_THROWN_MESSAGE_LEN = 200;
-const SECRET_PATTERNS = [
-  /bearer\s+[a-z0-9._-]+/gi,
-  /\b(sk|pk|api[_-]?key|apikey)[-_a-z0-9]*[=:\s]+[a-z0-9._-]{8,}/gi,
-  /\bAuthorization\s*[:=]\s*\S+/gi,
-];
-
-function redactSecrets(message: string): string {
-  let out = message;
-  for (const pattern of SECRET_PATTERNS) out = out.replace(pattern, '[redacted]');
-  return out;
-}
 
 function sanitizeThrownMessages(thrownMessages: Record<string, number>): Record<string, number> {
   const out: Record<string, number> = {};
@@ -106,12 +97,59 @@ function sanitizeThrownMessages(thrownMessages: Record<string, number>): Record<
   return out;
 }
 
-/** Spec's own campaign size; also the ceiling so a public route can't be made to
- *  allocate and evaluate an unbounded number of worlds in one request. */
-const MAX_N = 500;
-const DEFAULT_N = 40;
+/** Spec's own campaign size (500) is an internal ceiling, not a public one --
+ *  this route is unauthenticated, so the public default must be far lower.
+ *  Overridable for anyone who deploys this behind their own auth/quota. */
+const MAX_N = Number(process.env.CUPEL_PUBLIC_MAX_N ?? 25);
+const DEFAULT_N = 20;
+
+/** CRITICAL 1: per-IP rate limit, no new dependency. A module-scope Map is a
+ *  ponytail: single global lock, not per-account/per-deploy-instance --
+ *  fine for one Node process backing a hackathon demo, wrong the moment this
+ *  runs behind multiple instances (upgrade path: a shared store, e.g. Redis).
+ *  Expired entries are swept on every call so the Map can't grow unbounded. */
+const RATE_LIMIT = Number(process.env.CUPEL_RATE_LIMIT ?? 5);
+const RATE_WINDOW_MS = Number(process.env.CUPEL_RATE_WINDOW_MS ?? 10 * 60 * 1000);
+const FALLBACK_IP = 'unknown';
+const rateLimitState = new Map<string, { count: number; resetAt: number }>();
+
+function clientIp(request: Request): string {
+  const forwardedFor = request.headers.get('x-forwarded-for');
+  if (forwardedFor) return forwardedFor.split(',')[0].trim();
+  const realIp = request.headers.get('x-real-ip');
+  if (realIp) return realIp.trim();
+  return FALLBACK_IP;
+}
+
+/** Returns null if the request is allowed, or the Retry-After in whole
+ *  seconds if it should be rejected with 429. */
+function checkRateLimit(ip: string): number | null {
+  const now = Date.now();
+  for (const [key, entry] of rateLimitState) {
+    if (entry.resetAt <= now) rateLimitState.delete(key);
+  }
+  const entry = rateLimitState.get(ip);
+  if (!entry || entry.resetAt <= now) {
+    rateLimitState.set(ip, { count: 1, resetAt: now + RATE_WINDOW_MS });
+    return null;
+  }
+  if (entry.count >= RATE_LIMIT) {
+    return Math.ceil((entry.resetAt - now) / 1000);
+  }
+  entry.count += 1;
+  return null;
+}
 
 export async function POST(request: Request) {
+  const ip = clientIp(request);
+  const retryAfterSeconds = checkRateLimit(ip);
+  if (retryAfterSeconds !== null) {
+    return NextResponse.json(
+      { error: `Rate limit exceeded (${RATE_LIMIT} requests per ${Math.round(RATE_WINDOW_MS / 60_000)} minutes). Retry after ${retryAfterSeconds}s.` },
+      { status: 429, headers: { 'Retry-After': String(retryAfterSeconds) } },
+    );
+  }
+
   let requestBody: unknown = {};
   try {
     requestBody = await request.json();
@@ -145,6 +183,13 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { error: `engine must be one of ${API_ENGINES.join(', ')}, got ${JSON.stringify(rawEngine)}` },
       { status: 400 },
+    );
+  }
+
+  if (apiEngine === 'serv' && process.env.CUPEL_ALLOW_SERV !== 'true') {
+    return NextResponse.json(
+      { engine: apiEngine, error: 'The "serv" engine is disabled on this deployment (spends real SERV credit). Select "gemini" or "stub" instead.' },
+      { status: 403 },
     );
   }
 

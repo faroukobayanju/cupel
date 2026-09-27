@@ -5,10 +5,12 @@ import { readFileSync } from 'node:fs';
 import { ERC4626_ABI } from '../../../core/world/chain';
 import { readIxsVaults } from '../../../core/world/ixs';
 import { replayArm, type JsonArm } from '../../../core/verify/replay';
-import { compileMandate } from '../../../core/mandate/compile';
+import { compileMandate, parseMandate } from '../../../core/mandate/compile';
 import { SERV_MODEL, KRONOS_MODEL } from '../../../core/serv';
+import { safeErrorMessage } from '../../../core/redact';
 import chainFacts from '../../../fixtures/chain-facts.json';
 import benchResult from '../../../fixtures/bench-result.json';
+import recordedCompile from '../../../fixtures/mandate-compile.json';
 
 /**
  * TASK A11: every claim in the README that can be checked live, checked live,
@@ -59,11 +61,12 @@ async function checkVaultReads(): Promise<VerifyCheck> {
       links: [{ label: 'View vault on Basescan', url: `https://sepolia.basescan.org/address/${vaultAddress}` }],
     };
   } catch (err) {
+    console.error('checkVaultReads failed:', err);
     return {
       id: 'base-sepolia-vault-reads',
       label: 'Base Sepolia: live reads against the deployed vault',
       status: 'fail',
-      detail: `Read failed: ${err instanceof Error ? err.message : String(err)}`,
+      detail: `Read failed: ${safeErrorMessage(err)}`,
     };
   }
 }
@@ -85,9 +88,10 @@ async function checkReceipt(
       links: [{ label: 'View on Basescan', url: BASESCAN(txHash) }],
     };
   } catch (err) {
+    console.error(`checkReceipt(${id}) failed:`, err);
     return {
       id, label, status: 'fail',
-      detail: `Could not fetch receipt: ${err instanceof Error ? err.message : String(err)}`,
+      detail: `Could not fetch receipt: ${safeErrorMessage(err)}`,
       links: [{ label: 'View on Basescan', url: BASESCAN(txHash) }],
     };
   }
@@ -107,9 +111,10 @@ async function checkIxsReads(): Promise<VerifyCheck> {
       value: reports,
     };
   } catch (err) {
+    console.error('checkIxsReads failed:', err);
     return {
       id: 'ixs-production-reads', label: 'IXS: read-only reads of their live production vaults (BSC + Avalanche)',
-      status: 'fail', detail: `Read failed: ${err instanceof Error ? err.message : String(err)}`,
+      status: 'fail', detail: `Read failed: ${safeErrorMessage(err)}`,
     };
   }
 }
@@ -131,48 +136,87 @@ function checkBenchmarkReplay(): VerifyCheck {
       value: { raw: rawReplay, serv: servReplay },
     };
   } catch (err) {
+    console.error('checkBenchmarkReplay failed:', err);
     return {
       id: 'benchmark-replay', label: 'Frozen benchmark: replayed through the real checker, not just read from JSON',
-      status: 'fail', detail: `Replay failed: ${err instanceof Error ? err.message : String(err)}`,
+      status: 'fail', detail: `Replay failed: ${safeErrorMessage(err)}`,
     };
   }
 }
 
-async function checkMandateCompile(): Promise<VerifyCheck> {
+const REPLAYED_LABEL = 'Mandate compile (replayed from recorded run — add ?live=1 for a live call)';
+const LIVE_LABEL = 'Mandate compile (live SERV call)';
+
+/**
+ * CRITICAL 2: compileMandate is a live, billed SERV call. /verify is exactly
+ * the page judges reload repeatedly, so the default path must not spend
+ * credit on every load -- it replays the one recorded compile output in
+ * src/fixtures/mandate-compile.json (generated once, see
+ * scripts/generate-verify-fixture.ts) through the real parseMandate, which
+ * keeps the check meaningful (it fails loudly if the fixture no longer
+ * parses) without touching the network. `?live=1` opts into the real call,
+ * clearly labelled as such so a replay is never mistaken for a live result.
+ */
+function checkMandateCompileReplayed(): VerifyCheck {
   const id = 'mandate-compile-replay';
-  const label = 'Mandate compile: live SERV call, English policy -> typed clauses';
+  try {
+    const mandate = parseMandate(recordedCompile.source, recordedCompile.rawJson);
+    const pass = mandate.clauses.length > 0;
+    return {
+      id, label: REPLAYED_LABEL,
+      status: pass ? 'pass' : 'fail',
+      detail: pass
+        ? `Replayed the recorded compile output (model ${recordedCompile.model}, recorded ${recordedCompile.generatedAt}) through the real parseMandate: ${mandate.clauses.length} clauses. No network call made.`
+        : 'Recorded compile output parsed but produced zero clauses.',
+      value: { mode: 'replayed', model: recordedCompile.model, generatedAt: recordedCompile.generatedAt, clauseCount: mandate.clauses.length, clauseIds: mandate.clauses.map((c) => c.id) },
+    };
+  } catch (err) {
+    // The whole point of replaying through parseMandate rather than trusting
+    // a hardcoded "pass": if the recorded fixture no longer parses (schema
+    // drift, corruption), this must fail loudly, not silently stay green.
+    console.error('checkMandateCompileReplayed failed:', err);
+    return { id, label: REPLAYED_LABEL, status: 'fail', detail: `Recorded fixture failed to parse: ${safeErrorMessage(err)}` };
+  }
+}
+
+async function checkMandateCompileLive(): Promise<VerifyCheck> {
+  const id = 'mandate-compile-replay';
   if (!process.env.SERV_API_KEY) {
-    return { id, label, status: 'fail', detail: 'SERV_API_KEY is not set -- cannot make a live compile call.' };
+    return { id, label: LIVE_LABEL, status: 'fail', detail: 'SERV_API_KEY is not set -- cannot make a live compile call.' };
   }
   try {
     const source = readFileSync('src/fixtures/mandates/conservative.txt', 'utf8');
     const mandate = await compileMandate(source);
     const pass = mandate.clauses.length > 0;
     return {
-      id, label,
+      id, label: LIVE_LABEL,
       status: pass ? 'pass' : 'fail',
       detail: pass
-        ? `Compiled ${mandate.clauses.length} clauses from the English policy using ${KRONOS_MODEL || SERV_MODEL}.`
+        ? `Compiled ${mandate.clauses.length} clauses from the English policy using ${KRONOS_MODEL || SERV_MODEL} (live call, spent SERV credit).`
         : 'Compile call returned zero clauses.',
-      value: { model: KRONOS_MODEL || SERV_MODEL, clauseCount: mandate.clauses.length, clauseIds: mandate.clauses.map((c) => c.id) },
+      value: { mode: 'live', model: KRONOS_MODEL || SERV_MODEL, clauseCount: mandate.clauses.length, clauseIds: mandate.clauses.map((c) => c.id) },
     };
   } catch (err) {
-    return { id, label, status: 'fail', detail: `Compile call failed: ${err instanceof Error ? err.message : String(err)}` };
+    console.error('checkMandateCompileLive failed:', err);
+    return { id, label: LIVE_LABEL, status: 'fail', detail: `Compile call failed: ${safeErrorMessage(err)}` };
   }
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const live = new URL(request.url).searchParams.get('live') === '1';
+
   const checks = await Promise.all([
     checkVaultReads(),
     checkReceipt('deploy-tx-receipt', 'Base Sepolia: deploy transaction receipt', chainFacts.deployedVault.deployTxHash as `0x${string}`),
     checkReceipt('deposit-tx-receipt', 'Base Sepolia: deposit transaction receipt', chainFacts.deposit.txHash as `0x${string}`),
     checkIxsReads(),
     Promise.resolve(checkBenchmarkReplay()),
-    checkMandateCompile(),
+    live ? checkMandateCompileLive() : Promise.resolve(checkMandateCompileReplayed()),
   ]);
 
   return NextResponse.json({
     ranAt: new Date().toISOString(),
+    mandateCompileMode: live ? 'live' : 'replayed',
     checks,
     allPassed: checks.every((c) => c.status === 'pass'),
   });
