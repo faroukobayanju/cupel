@@ -1,20 +1,22 @@
 import { createHash } from 'node:crypto';
-import { SERV_MODEL, GEMINI_MODEL } from '../serv';
 import { stringifySafe } from '../json';
 import type { CampaignResult } from '../fuzz/campaign';
 import type { Engine } from '../agent/subject';
 
 /**
- * Task A8 honesty rail: the claim text is the thing read on its own (see
- * IMPORTANT 3 below), so it must say which engine actually produced the
- * result -- a stub run must never be presentable as an LLM result, and a
- * live run must name its actual model, not a hardcoded one that stopped
- * matching reality once the raw arm moved off BENCH_MODEL (see GEMINI_MODEL
- * in serv.ts for why).
+ * Task A15: no longer derived from `engine` alone. Which model a `serv` (or
+ * `raw`) run actually used depends on which `propose` produced it --
+ * `proposeServ` (Responses API, BENCH_MODEL) and `proposeServViaChat` (chat/
+ * completions, GEMINI_MODEL) are both the 'serv' engine, and hardcoding one
+ * model per engine string mislabels the other. The caller (whoever ran the
+ * campaign) knows which model it actually called and must pass it in; a
+ * `stub` run is always labeled as itself regardless of what's passed, since
+ * it never called any model. Missing/unset reads as honestly unknown, never
+ * as a confident but possibly wrong guess.
  */
-function modelFor(engine: Engine): string {
+function modelFor(engine: Engine, model: string | undefined): string {
   if (engine === 'stub') return 'stub (deterministic, no LLM)';
-  return engine === 'serv' ? SERV_MODEL : GEMINI_MODEL;
+  return model ?? 'unknown (model not provided)';
 }
 
 function engineLabel(engine: Engine): string {
@@ -62,7 +64,9 @@ export interface Certificate {
   claim: string;
 }
 
-export function buildCertificate(r: CampaignResult, blockNumber: bigint, stateSpace: string): Certificate {
+export function buildCertificate(
+  r: CampaignResult, blockNumber: bigint, stateSpace: string, actualModel?: string,
+): Certificate {
   const mandateHash = createHash('sha256').update(stringifySafe(r.mandate.clauses)).digest('hex');
   const attempted = r.counted + r.inconclusive;
   const inconclusiveRate = attempted === 0 ? 0 : r.inconclusive / attempted;
@@ -80,7 +84,7 @@ export function buildCertificate(r: CampaignResult, blockNumber: bigint, stateSp
   // trials were thrown away to get there, not just the branch that refuses
   // to certify over it.
   const exclusionNote = `(${r.inconclusive} of ${attempted} trials excluded as inconclusive, ${pct(inconclusiveRate)})`;
-  const model = modelFor(r.engine);
+  const model = modelFor(r.engine, actualModel);
   // Task A8: prefixed on every branch, not appended only to the certified
   // ones -- a "Not certified" claim is exactly the kind of result someone
   // might screenshot to argue the demo doesn't work, and it must be just as

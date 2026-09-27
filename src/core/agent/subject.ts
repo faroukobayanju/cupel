@@ -115,14 +115,14 @@ function debugLog(category: 'api_error' | 'invalid_json' | 'schema_invalid' | 'a
  */
 function buildIntents(parsed: z.infer<typeof PlanSchema>) {
   return parsed.intents.map((i) => {
-    // Money is bigint, never a float round-trip. parseUnits does exact
-    // fixed-point decimal-string -> bigint conversion. Reject anything that
-    // isn't a finite, non-negative amount rather than let it produce garbage.
-    // Validation-only: this Number() never feeds a computation or the
-    // resulting amount, only the finite/non-negative check below. The actual
-    // money conversion is parseUnits(i.amountUsdc, 6) a few lines down.
-    const n = Number(i.amountUsdc);
-    if (!Number.isFinite(n) || n < 0) {
+    // Money is bigint, never a float round-trip -- not even at a validation
+    // boundary. parseUnits does exact fixed-point decimal-string -> bigint
+    // conversion; this checks the string SHAPE (plain non-negative decimal,
+    // no sign, no exponent, no leading/trailing junk) rather than coercing it
+    // through Number, which can misparse ("1e10", "Infinity", "0x10") or lose
+    // precision. The actual money conversion is parseUnits(i.amountUsdc, 6)
+    // a few lines down.
+    if (!/^\d+(\.\d+)?$/.test(i.amountUsdc)) {
       throw new Error(`invalid amountUsdc from model: ${i.amountUsdc}`);
     }
     return {
@@ -167,6 +167,46 @@ function parseJsonLenient(text: string): unknown {
 }
 
 /**
+ * Task A15: the invalid_json / schema_invalid / amount_guard error ladder
+ * shared by `proposeServ` and `proposeChatCompletion` -- identical in both
+ * (same diagnostic buckets, same debugLog calls, same rethrow), differing
+ * only in HOW the raw text is pulled out of each transport's response shape.
+ * Callers do that extraction themselves and hand this the plain string, so
+ * the transport-specific bit stays at the call site and only the ladder
+ * moves here. Diagnostic buckets and rethrow behavior are unchanged.
+ */
+function parsePlanFromText(rawText: string): {
+  parsed: z.infer<typeof PlanSchema>;
+  intents: ReturnType<typeof buildIntents>;
+} {
+  let json: unknown;
+  try {
+    json = parseJsonLenient(rawText);
+  } catch (err) {
+    debugLog('invalid_json', rawText);
+    throw err;
+  }
+
+  let parsed: z.infer<typeof PlanSchema>;
+  try {
+    parsed = PlanSchema.parse(json);
+  } catch (err) {
+    debugLog('schema_invalid', { error: err instanceof z.ZodError ? err.issues : err, json });
+    throw err;
+  }
+
+  let intents: ReturnType<typeof buildIntents>;
+  try {
+    intents = buildIntents(parsed);
+  } catch (err) {
+    debugLog('amount_guard', err);
+    throw err;
+  }
+
+  return { parsed, intents };
+}
+
+/**
  * Real engine, via the Responses API (not chat completions). PROBE RESULTS
  * 8b: reasoning summaries are only exposed on `/responses`, as a discrete
  * `type: 'reasoning'` output item with a stable `id` and a readable
@@ -201,21 +241,7 @@ async function proposeServ(mandate: Mandate, world: WorldState): Promise<Allocat
     throw err;
   }
 
-  let json: unknown;
-  try {
-    json = parseJsonLenient(res.output_text ?? '{}');
-  } catch (err) {
-    debugLog('invalid_json', res.output_text);
-    throw err;
-  }
-
-  let parsed: z.infer<typeof PlanSchema>;
-  try {
-    parsed = PlanSchema.parse(json);
-  } catch (err) {
-    debugLog('schema_invalid', { error: err instanceof z.ZodError ? err.issues : err, json });
-    throw err;
-  }
+  const { parsed, intents } = parsePlanFromText(res.output_text ?? '{}');
 
   const reasoningItem = res.output?.find(
     (o): o is Extract<typeof o, { type: 'reasoning' }> => o.type === 'reasoning',
@@ -224,14 +250,6 @@ async function proposeServ(mandate: Mandate, world: WorldState): Promise<Allocat
     ?.map((s) => s.text)
     .filter((t): t is string => typeof t === 'string' && t.length > 0)
     .join('\n\n');
-
-  let intents: ReturnType<typeof buildIntents>;
-  try {
-    intents = buildIntents(parsed);
-  } catch (err) {
-    debugLog('amount_guard', err);
-    throw err;
-  }
 
   return {
     rationale: parsed.rationale,
@@ -275,33 +293,11 @@ async function proposeChatCompletion(
     throw err;
   }
 
-  let json: unknown;
-  try {
-    // Coordinator side-probe: Gemini, both directly and through SERV chat
-    // completions, returns JSON wrapped in a Markdown fence despite a JSON
-    // response format -- this is the benchmark's raw comparison arm, so the
-    // same lenient-then-strict parse applies here too.
-    json = parseJsonLenient(res.choices[0].message.content ?? '{}');
-  } catch (err) {
-    debugLog('invalid_json', res.choices[0].message.content);
-    throw err;
-  }
-
-  let parsed: z.infer<typeof PlanSchema>;
-  try {
-    parsed = PlanSchema.parse(json);
-  } catch (err) {
-    debugLog('schema_invalid', { error: err instanceof z.ZodError ? err.issues : err, json });
-    throw err;
-  }
-
-  let intents: ReturnType<typeof buildIntents>;
-  try {
-    intents = buildIntents(parsed);
-  } catch (err) {
-    debugLog('amount_guard', err);
-    throw err;
-  }
+  // Coordinator side-probe: Gemini, both directly and through SERV chat
+  // completions, returns JSON wrapped in a Markdown fence despite a JSON
+  // response format -- this is the benchmark's raw comparison arm, so the
+  // same lenient-then-strict parse applies here too.
+  const { parsed, intents } = parsePlanFromText(res.choices[0].message.content ?? '{}');
 
   const usage = res.usage
     ? { promptTokens: res.usage.prompt_tokens, completionTokens: res.usage.completion_tokens }

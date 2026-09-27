@@ -53,3 +53,16 @@ describe('compare (task A7c: raw-vs-SERV, same worlds, same model)', () => {
     expect(result.rawBreachRate).toBe(result.servBreachRate);
   });
 });
+
+describe('assertSameModel (task A15: runtime guard against a model-choice confound)', () => {
+  it('throws, naming both model ids, when the arms differ', async () => {
+    const { assertSameModel } = await import('./compare');
+    expect(() => assertSameModel('gemini-2.5-flash', 'gpt-6-luna')).toThrow(/gemini-2\.5-flash/);
+    expect(() => assertSameModel('gemini-2.5-flash', 'gpt-6-luna')).toThrow(/gpt-6-luna/);
+  });
+
+  it('does not throw when both arms run the same model', async () => {
+    const { assertSameModel } = await import('./compare');
+    expect(() => assertSameModel('gemini-3.5-flash-lite', 'gemini-3.5-flash-lite')).not.toThrow();
+  });
+});

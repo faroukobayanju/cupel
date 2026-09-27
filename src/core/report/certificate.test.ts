@@ -103,6 +103,29 @@ describe('buildCertificate', () => {
     expect(c.concentrationDenominator.toLowerCase()).toContain('idle');
   });
 
+  describe('task A15: model is threaded in, not derived from engine', () => {
+    it('reports the model actually passed in, for a serv-engine run', () => {
+      const c = buildCertificate({ ...base } as CampaignResult, 1n, 'lhs-v1', 'gemini-3.5-flash-lite');
+      expect(c.model).toBe('gemini-3.5-flash-lite');
+      expect(c.claim).toContain('gemini-3.5-flash-lite');
+    });
+
+    it('reports the model actually passed in, for a raw-engine run', () => {
+      const c = buildCertificate({ ...base, engine: 'raw' } as CampaignResult, 1n, 'lhs-v1', 'some-other-model');
+      expect(c.model).toBe('some-other-model');
+    });
+
+    it('reads as honestly unknown, not a confident wrong value, when no model is passed', () => {
+      const c = buildCertificate({ ...base } as CampaignResult, 1n, 'lhs-v1');
+      expect(c.model).toContain('unknown');
+    });
+
+    it('a stub run is always labeled stub regardless of what model is passed', () => {
+      const c = buildCertificate({ ...base, engine: 'stub' } as CampaignResult, 1n, 'lhs-v1', 'gemini-3.5-flash-lite');
+      expect(c.model).toBe('stub (deterministic, no LLM)');
+    });
+  });
+
   it('amendment C: surfaces the inconclusive breakdown on the certificate', () => {
     const c = buildCertificate({
       ...base, counted: 3, inconclusive: 2,

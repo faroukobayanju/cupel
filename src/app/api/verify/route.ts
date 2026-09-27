@@ -8,6 +8,7 @@ import { replayArm, type JsonArm } from '../../../core/verify/replay';
 import { compileMandate, parseMandate } from '../../../core/mandate/compile';
 import { SERV_MODEL, KRONOS_MODEL } from '../../../core/serv';
 import { safeErrorMessage } from '../../../core/redact';
+import { bigintSafe } from '../../../core/json';
 import chainFacts from '../../../fixtures/chain-facts.json';
 import benchResult from '../../../fixtures/bench-result.json';
 import recordedCompile from '../../../fixtures/mandate-compile.json';
@@ -55,8 +56,8 @@ async function checkVaultReads(): Promise<VerifyCheck> {
       status: 'pass',
       detail: `Read maxDeposit, totalAssets, and asset from ${vaultAddress} at current block ${blockNumber}.`,
       value: {
-        vaultAddress, currentBlock: blockNumber.toString(),
-        maxDeposit: maxDeposit.toString(), totalAssets: totalAssets.toString(), asset,
+        vaultAddress, currentBlock: blockNumber,
+        maxDeposit, totalAssets, asset,
       },
       links: [{ label: 'View vault on Basescan', url: `https://sepolia.basescan.org/address/${vaultAddress}` }],
     };
@@ -84,7 +85,7 @@ async function checkReceipt(
       detail: pass
         ? `Receipt status "${receipt.status}" at block ${receipt.blockNumber}.`
         : `Receipt status "${receipt.status}" -- expected "success".`,
-      value: { txHash, status: receipt.status, blockNumber: receipt.blockNumber.toString() },
+      value: { txHash, status: receipt.status, blockNumber: receipt.blockNumber },
       links: [{ label: 'View on Basescan', url: BASESCAN(txHash) }],
     };
   } catch (err) {
@@ -214,10 +215,11 @@ export async function GET(request: Request) {
     live ? checkMandateCompileLive() : Promise.resolve(checkMandateCompileReplayed()),
   ]);
 
-  return NextResponse.json({
+  const payload = {
     ranAt: new Date().toISOString(),
     mandateCompileMode: live ? 'live' : 'replayed',
     checks,
     allPassed: checks.every((c) => c.status === 'pass'),
-  });
+  };
+  return new NextResponse(JSON.stringify(payload, bigintSafe), { headers: { 'content-type': 'application/json' } });
 }

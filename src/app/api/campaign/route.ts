@@ -140,75 +140,66 @@ function checkRateLimit(ip: string): number | null {
   return null;
 }
 
-export async function POST(request: Request) {
-  const ip = clientIp(request);
-  const retryAfterSeconds = checkRateLimit(ip);
-  if (retryAfterSeconds !== null) {
-    return NextResponse.json(
-      { error: `Rate limit exceeded (${RATE_LIMIT} requests per ${Math.round(RATE_WINDOW_MS / 60_000)} minutes). Retry after ${retryAfterSeconds}s.` },
-      { status: 429, headers: { 'Retry-After': String(retryAfterSeconds) } },
-    );
-  }
-
-  let requestBody: unknown = {};
-  try {
-    requestBody = await request.json();
-  } catch {
-    // No body, or non-JSON body: treat as "n omitted", not as garbage.
-  }
-
+/** Parses `n` from the request body. Returns the resolved (clamped) n, or a
+ *  ready-to-return 400 NextResponse if the caller's `n` is invalid. */
+function resolveN(requestBody: unknown): { n: number } | { errorResponse: NextResponse } {
   const rawN = (requestBody as { n?: unknown } | null)?.n;
-  let n = DEFAULT_N;
-  if (rawN !== undefined) {
-    if (typeof rawN !== 'number' || !Number.isFinite(rawN) || rawN < 0) {
-      return NextResponse.json(
+  if (rawN === undefined) return { n: DEFAULT_N };
+  if (typeof rawN !== 'number' || !Number.isFinite(rawN) || rawN < 0) {
+    return {
+      errorResponse: NextResponse.json(
         { error: `n must be a non-negative finite number, got ${JSON.stringify(rawN)}` },
         { status: 400 },
-      );
-    }
-    n = Math.min(MAX_N, Math.max(1, Math.floor(rawN)));
+      ),
+    };
   }
+  return { n: Math.min(MAX_N, Math.max(1, Math.floor(rawN))) };
+}
 
-  // Task A8: default to a working engine. 'gemini' (the live, free, working
-  // LLM path) when a key is configured; otherwise 'stub' (offline,
-  // deterministic) rather than silently defaulting to 'serv', which -- with
-  // zero credit -- would 402 on every trial.
+/**
+ * Task A8: default to a working engine. 'gemini' (the live, free, working
+ * LLM path) when a key is configured; otherwise 'stub' (offline,
+ * deterministic) rather than silently defaulting to 'serv', which -- with
+ * zero credit -- would 402 on every trial. Returns the resolved ApiEngine,
+ * or a ready-to-return 400 NextResponse if the caller's `engine` is invalid.
+ */
+function resolveEngine(requestBody: unknown): { apiEngine: ApiEngine } | { errorResponse: NextResponse } {
   const rawEngine = (requestBody as { engine?: unknown } | null)?.engine;
-  let apiEngine: ApiEngine;
   if (rawEngine === undefined) {
-    apiEngine = process.env.GEMINI_API_KEY ? 'gemini' : 'stub';
-  } else if (typeof rawEngine === 'string' && (API_ENGINES as readonly string[]).includes(rawEngine)) {
-    apiEngine = rawEngine as ApiEngine;
-  } else {
-    return NextResponse.json(
+    return { apiEngine: process.env.GEMINI_API_KEY ? 'gemini' : 'stub' };
+  }
+  if (typeof rawEngine === 'string' && (API_ENGINES as readonly string[]).includes(rawEngine)) {
+    return { apiEngine: rawEngine as ApiEngine };
+  }
+  return {
+    errorResponse: NextResponse.json(
       { error: `engine must be one of ${API_ENGINES.join(', ')}, got ${JSON.stringify(rawEngine)}` },
       { status: 400 },
-    );
-  }
+    ),
+  };
+}
 
-  if (apiEngine === 'serv' && process.env.CUPEL_ALLOW_SERV !== 'true') {
+/** The 'serv' engine's gating + credit preflight. Returns a ready-to-return
+ *  error NextResponse if 'serv' is disabled or out of credit, else null. */
+async function servPreflightError(apiEngine: ApiEngine): Promise<NextResponse | null> {
+  if (apiEngine !== 'serv') return null;
+
+  if (process.env.CUPEL_ALLOW_SERV !== 'true') {
     return NextResponse.json(
       { engine: apiEngine, error: 'The "serv" engine is disabled on this deployment (spends real SERV credit). Select "gemini" or "stub" instead.' },
       { status: 403 },
     );
   }
 
-  if (apiEngine === 'serv') {
-    const creditError = await servCreditError();
-    if (creditError !== null) {
-      return NextResponse.json({ engine: apiEngine, error: creditError }, { status: 402 });
-    }
+  const creditError = await servCreditError();
+  if (creditError !== null) {
+    return NextResponse.json({ engine: apiEngine, error: creditError }, { status: 402 });
   }
+  return null;
+}
 
-  const result = await runCampaign({
-    mandate: conservativeMandate,
-    nominal: simulatedWorld(),
-    n,
-    seed: 'cupel-demo',
-    engine: toInternalEngine(apiEngine),
-    propose: apiEngine === 'stub' ? proposeWithStub : undefined,
-  });
-
+/** Shapes the campaign result into the route's public JSON payload. */
+function buildPayload(result: Awaited<ReturnType<typeof runCampaign>>, apiEngine: ApiEngine) {
   const firstBreach = result.trials.find((t) => t.status === 'breach') ?? null;
 
   // So the UI can attribute a violated clause to the specific intent that
@@ -218,7 +209,7 @@ export async function POST(request: Request) {
     conservativeMandate.clauses.filter((c) => 'vault' in c).map((c) => [c.id, (c as { vault: string }).vault]),
   );
 
-  const payload = {
+  return {
     // Task A8 honesty rail: every result carries the engine that produced it.
     // A stub run must never be presentable as an LLM result -- this is the
     // one field the UI needs to enforce that, and it names the same value
@@ -241,7 +232,45 @@ export async function POST(request: Request) {
     clauseVaults,
     firstBreach,
   };
+}
 
-  const responseBody = JSON.stringify(payload, bigintSafe);
+export async function POST(request: Request) {
+  const ip = clientIp(request);
+  const retryAfterSeconds = checkRateLimit(ip);
+  if (retryAfterSeconds !== null) {
+    return NextResponse.json(
+      { error: `Rate limit exceeded (${RATE_LIMIT} requests per ${Math.round(RATE_WINDOW_MS / 60_000)} minutes). Retry after ${retryAfterSeconds}s.` },
+      { status: 429, headers: { 'Retry-After': String(retryAfterSeconds) } },
+    );
+  }
+
+  let requestBody: unknown = {};
+  try {
+    requestBody = await request.json();
+  } catch {
+    // No body, or non-JSON body: treat as "n omitted", not as garbage.
+  }
+
+  const nResult = resolveN(requestBody);
+  if ('errorResponse' in nResult) return nResult.errorResponse;
+  const { n } = nResult;
+
+  const engineResult = resolveEngine(requestBody);
+  if ('errorResponse' in engineResult) return engineResult.errorResponse;
+  const { apiEngine } = engineResult;
+
+  const preflightError = await servPreflightError(apiEngine);
+  if (preflightError !== null) return preflightError;
+
+  const result = await runCampaign({
+    mandate: conservativeMandate,
+    nominal: simulatedWorld(),
+    n,
+    seed: 'cupel-demo',
+    engine: toInternalEngine(apiEngine),
+    propose: apiEngine === 'stub' ? proposeWithStub : undefined,
+  });
+
+  const responseBody = JSON.stringify(buildPayload(result, apiEngine), bigintSafe);
   return new NextResponse(responseBody, { headers: { 'content-type': 'application/json' } });
 }
