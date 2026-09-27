@@ -1,0 +1,25 @@
+graph TD
+  POL["Treasury mandate<br/>plain English"] -->|SERV, schema-forced| COMP["Mandate compiler<br/>typed clauses"]
+  NOM["World state<br/>4 vaults, simulated"] --> SEED
+  COMP --> SEED["Clause-directed seeding<br/>one tempting world per clause"]
+  NOM --> SAMP["Latin hypercube sampling"]
+  SEED --> POOL["Campaign runner<br/>bounded worker pool"]
+  SAMP --> POOL
+
+  POOL -->|per world| AGENT{"Subject agent<br/>mandate-blind"}
+  AGENT -->|stub| E1["deterministic, no network"]
+  AGENT -->|gemini| E2["Gemini direct, free tier"]
+  AGENT -->|serv| E3["SERV Reasoning<br/>403 unless enabled"]
+  E1 --> PLAN["AllocationPlan<br/>typed, cites clauses"]
+  E2 --> PLAN
+  E3 --> PLAN
+
+  PLAN --> CHECK["Violation checker<br/>PURE TypeScript, bigint"]
+  CHAIN["Base Sepolia<br/>ERC-4626 reads"] --> CHECK
+  CHECK -->|clean| CERT["Certificate<br/>states exclusions,<br/>not a proof of safety"]
+  CHECK -->|breach| SHRINK["Shrink to minimal counterexample"]
+  SHRINK --> REPL["Replicate, breach frequency"]
+  REPL --> LOC["Localize, quote agent reasoning"]
+  LOC --> REPORT["Breach report<br/>clause, intent, treasury math"]
+
+  CHECK -. never reads the model .-> AGENT

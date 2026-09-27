@@ -157,3 +157,8 @@ Stated plainly, because this is what makes the rest of this document worth trust
 - **Gauntlet** does protocol-level risk modeling for DeFi protocols as a whole. Cupel is scoped to testing one agent against one mandate, not a protocol's aggregate risk.
 - **QuickCheck / Hypothesis** are Cupel's direct ancestors — the shrink-to-minimal-counterexample idea is borrowed openly. The difference is that the subject under test here is non-deterministic (an LLM), so Cupel reports breach *frequencies* over repeated runs rather than a single pass/fail.
 - **TLA+** and other model checkers can *prove* a system correct within a specified model. Cupel cannot prove anything — it can only find counterexamples, and their absence is not a proof.
+
+## Documentation
+
+- [Product document](docs/PRODUCT.md) — the problem, how Cupel solves it, architecture, evidence, and honest limits
+- [Architecture diagram](diagrams/cupel-architecture.png) — editable source at `diagrams/cupel-architecture.excalidraw`
